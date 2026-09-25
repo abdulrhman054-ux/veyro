@@ -188,3 +188,19 @@ Full findings: `docs/REVIEW.md`.
 117. **Memory and connections:** the live feed follows base symbols + what open screens want + active alert symbols (≤ 200 extra), backs off symbols that keep failing, and pauses with nobody watching; finished sessions' event lists are dropped after 30 minutes with no viewer and rebuilt from the database on demand; the relay closes its client when Anthropic is unreachable; the Vite dev origins need `VEYRO_DEV=1`.
 118. **Desktop:** the start-up error screen has a Close button and closing it quits (no hidden process holding the single-instance lock); the backend exits when the Electron process is gone (`VEYRO_PARENT_PID` watchdog; Windows-safe check). Not run on Windows in this environment.
 119. **Phone width:** the dialogue and verdict render under the stage at normal size (the stage itself is scaled to about a third); Settings gets a section jump menu.
+
+## Third round (owner requests, 2026-09-25)
+120. **Free pre-screen "value" mode, Saudi and US** (`veyro/valuation.py`):
+    - **P/E:** Yahoo's trailing P/E, else price ÷ EPS at the latest close, only when EPS is in the trading currency. A loss-making company (EPS ≤ 0) has no P/E and goes last with that reason.
+    - **Peers:** each P/E is compared with the median of its Yahoo sector among companies of the **same market**: the candidates plus Veyro's list of large companies of that market. With fewer than 3 peers it uses the whole market's median and says so.
+    - **Dividend yield:** computed from the dividends actually paid in the last 12 months ÷ the latest close. Yahoo's `dividendYield` field is not used because it has been reported sometimes as a fraction and sometimes as a percent. Yields over 10% are flagged (usually a one-off) and counted at 10%. A failed dividend fetch is "unknown", never zero.
+    - **Score:** log(peer P/E ÷ P/E) clipped to ±1, + 5 × yield, − 0.3 × volatility.
+    - **Cost:** one light Yahoo request per company, cached for a day (`valuation_cache`).
+    - **Still a cost filter, not a recommendation.** A low P/E can be a value trap; the volatility term only partly guards against that.
+121. **Screens keep your place.** Screens were already kept mounted, but switching screens scrolled to the top, and because the header scrolled away you had to scroll up to reach it anyway.
+    - Each screen's scroll position is now saved and restored.
+    - The header is sticky from 900 px up. Phones keep it in the page, where it wraps into several rows.
+122. **Stop is immediate from every state.**
+    - Pressing Stop ends the session for viewers and in the database at once, under the same lock the verdict uses: whichever comes first wins, and a recorded verdict is never taken back.
+    - The worker checks for Stop at each start-up step and during a resumed run's replay.
+    - Leo's "stopped" line no longer holds the Start button (it used to, for about 8 s).

@@ -294,25 +294,30 @@ All ten were built in the second round except #4, which the owner decided agains
 
 ## 9. Test counts
 
-| Suite | Baseline | After round 1 | After round 2 |
-|---|---|---|---|
-| Backend pytest (`backend/tests`) | 42 passed | 93 passed | **121 passed** (`test_review_fixes.py`, `test_sharia.py`, `test_allocation_risk.py`) |
-| e2e `ui_test` | 12 PASS | 12 PASS | 12 PASS |
-| e2e `new_feats` | 14 PASS | 14 PASS | 14 PASS |
-| e2e `round3` | 5 PASS | 5 PASS | 5 PASS |
-| e2e `review_fixes` (new) | — | 20 PASS | 20 PASS |
-| e2e `round4` (new) | — | — | 14 PASS |
-| TypeScript `tsc --noEmit` and `npm run build` | OK | OK | OK |
+| Suite | Baseline | After round 1 | After round 2 | After round 3 |
+|---|---|---|---|---|
+| Backend pytest (`backend/tests`) | 42 | 93 | 121 | **138** |
+| e2e `ui_test` | 12 | 12 | 12 | 12 |
+| e2e `new_feats` | 14 | 14 | 14 | 14 |
+| e2e `round3` | 5 | 5 | 5 | 5 |
+| e2e `review_fixes` | — | 20 | 20 | 20 |
+| e2e `round4` | — | — | 14 | 19 (value mode, US and Saudi) |
+| e2e `persist` | — | — | — | 12 (every screen keeps its state) |
+| e2e `stop` | — | — | — | 9 (Stop is immediate) |
+| TypeScript `tsc --noEmit` and `npm run build` | OK | OK | OK | OK |
 
-Totals:
-- pytest: **42 → 93 → 121**.
-- Browser checks: **31 → 51 → 65**, 0 failures (`tools/e2e/run_all.sh`).
+Totals: pytest **42 → 138**, browser checks **31 → 91**, 0 failures in the last full run of `tools/e2e/run_all.sh`.
 
-In round 2, two older e2e selectors had to follow deliberate UI additions:
-- the economy option gained a second select (the pre-screen method);
-- the trust dashboard gained a fifth tile (20-day hit rate).
+## Round 3 (owner requests)
 
-Some existing unit tests were also updated for intended behaviour changes, each noted in its commit:
-- a single pick now gets 40%;
-- trust is scored at fixed horizons;
-- Labor Day is skipped when counting sessions.
+**Value pre-screen for Saudi and US stocks** (`9208f1f`):
+- It compares P/E with the company's own sector in its own market; a sector with fewer than 3 peers is compared with the whole market, and the line says so.
+- Dividend yield is computed from the dividends actually paid.
+- Loss-making companies and missing data go last with the reason.
+- Details are in DECISIONS 120.
+
+**Screens keep their state** (`3fd78a3`). A test fills in every screen, tours all screens twice and comes back. It found one real gap: the scroll position was lost, and the header scrolled away so you had to scroll up to change screens. Both are fixed.
+
+**Stop is immediate** (`5f629c4`). Measured in the browser, 0.08–0.30 s in every state: right after Start, mid-run in single, watchlist and beginner modes, and by Esc. Right after Start used to take 7.84 s. There were two causes:
+- nothing checked for Stop during start-up;
+- the Start button waited for Leo's "stopped" line to finish.
