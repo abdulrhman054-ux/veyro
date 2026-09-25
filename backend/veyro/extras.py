@@ -42,6 +42,9 @@ def replay(sid: str) -> None:
     bus.publish({"type": "market", "data": h, "available": h is not None})
     for t in s["turns"]:
         text = (t["voice_ar"] if lang == "ar" else t["voice_en"]) or t["voice_en"] or t["voice_ar"] or ""
+        if not text:   # the voice line had failed: show the same fallback line as the live run
+            text = runner.fallback_line(t["character"], lang) if t["character"] in runner.CHARACTERS else \
+                ("التحليل الكامل محفوظ في التقرير." if lang == "ar" else "The full analysis is in the report.")
         bus.publish({"type": "agent_message", "character": t["character"], "node": t["node"], "turn_id": t["id"], "text": text,
                      "lang": lang, "texts": {k: v for k, v in (("ar", t["voice_ar"]), ("en", t["voice_en"])) if v}})
         bus.publish({"type": "agent_done", "character": t["character"], "node": t["node"]})
@@ -93,8 +96,11 @@ def paper_close(pid: int) -> dict:
     row = db.q1("SELECT * FROM paper WHERE id=?", (pid,))
     if row and not row["closed_at"]:
         px = market.last_price(row["ticker"])
+        b = market.last_price(row["bench"]) if row["bench"] else None
+        # the index is frozen at the same moment as the stock, so a closed position's alpha stops moving
         with db.tx() as c:
-            c.execute("UPDATE paper SET closed_at=?, exit_price=? WHERE id=?", (db.now(), px["price"] if px else row["entry_price"], pid))
+            c.execute("UPDATE paper SET closed_at=?, exit_price=?, bench_exit=? WHERE id=?",
+                      (db.now(), px["price"] if px else row["entry_price"], b["price"] if b else None, pid))
     return paper_view()
 
 
@@ -109,7 +115,7 @@ def paper_view() -> dict:
     totals: dict[str, dict] = {}
     for r in rows:
         now = r["exit_price"] if r["closed_at"] else ((market.last_price(r["ticker"]) or {}).get("price"))
-        bnow = (market.last_price(r["bench"]) or {}).get("price") if r["bench"] else None
+        bnow = r.get("bench_exit") if r["closed_at"] else ((market.last_price(r["bench"]) or {}).get("price") if r["bench"] else None)
         r["price_now"] = now
         r["value"] = now * r["shares"] if now else None
         r["cost"] = r["entry_price"] * r["shares"]
@@ -117,7 +123,7 @@ def paper_view() -> dict:
         r["bench_ret"] = bnow / r["bench_entry"] - 1 if bnow and r["bench_entry"] else None
         r["alpha"] = r["ret"] - r["bench_ret"] if r["ret"] is not None and r["bench_ret"] is not None else None
         cur = r["currency"] or "USD"
-        t = totals.setdefault(cur, {"currency": cur, "cost": 0.0, "value": 0.0, "bench_weighted": 0.0, "known": True})
+        t = totals.setdefault(cur, {"currency": cur, "cost": 0.0, "value": 0.0, "bench_weighted": 0.0, "bench_cost": 0.0, "known": True})
         t["cost"] += r["cost"]
         if r["value"] is None:
             t["known"] = False
@@ -125,9 +131,10 @@ def paper_view() -> dict:
             t["value"] += r["value"]
         if r["bench_ret"] is not None:
             t["bench_weighted"] += r["cost"] * r["bench_ret"]
+            t["bench_cost"] += r["cost"]
     for t in totals.values():
         t["ret"] = t["value"] / t["cost"] - 1 if t["cost"] and t["known"] else None
-        t["bench_ret"] = t["bench_weighted"] / t["cost"] if t["cost"] else None
+        t["bench_ret"] = t["bench_weighted"] / t["bench_cost"] if t["bench_cost"] else None   # only rows with an index return
     return {"positions": rows, "totals": list(totals.values()), "source": market.SOURCE}
 
 

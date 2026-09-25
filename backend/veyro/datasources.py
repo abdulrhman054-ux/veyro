@@ -32,7 +32,7 @@ def current() -> str:
     return s if s in SOURCES else "yahoo"
 
 
-def _get(url: str, timeout: float = 10) -> str:
+def _get(url: str, timeout: float = 6) -> str:
     req = urllib.request.Request(url, headers=UA)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode("utf-8", "replace")

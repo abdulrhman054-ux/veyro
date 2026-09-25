@@ -693,3 +693,29 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
   .report { display: block !important; } .report > .left { width: auto !important; }
   .detail { max-height: none !important; overflow: visible !important; }
 }
+
+/* ---------- trust dashboard ---------- */
+.trust-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.trust-tiles .stat { background: var(--cream); border-radius: 16px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.trust-tiles .stat b { font-size: 26px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.trust-tiles .small { font-size: 12px; }
+.mbars { position: relative; display: flex; gap: 2px; align-items: flex-end; height: 150px; padding: 0 0 34px 34px; }
+.mbars .half { position: absolute; left: 34px; right: 0; bottom: calc(34px + 58px); border-top: 2px dashed var(--line); }
+.mbars .half span { position: absolute; left: -34px; top: -9px; font-size: 11px; color: var(--muted); }
+.mbar { position: relative; flex: 1; max-width: 70px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; outline: none; }
+.mbar .track { width: 60%; height: 116px; display: flex; align-items: flex-end; }
+.mbar .fill { width: 100%; background: var(--orange); border-radius: 4px 4px 0 0; min-height: 2px; }
+.mbar:hover .fill, .mbar:focus .fill { filter: brightness(1.08); }
+.mbar .v { position: absolute; bottom: 34px; transform: translateY(-120px); font-size: 12px; font-weight: 800; color: var(--ink); }
+.mbar .m { position: absolute; bottom: 12px; font-size: 12px; color: var(--muted); }
+.mbar .tip { position: absolute; bottom: 150px; z-index: 5; white-space: nowrap; background: var(--card); color: var(--ink); border: 2px solid var(--line); border-radius: 10px; padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 0 var(--shade); }
+.capbar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.capbar i { display: block; height: 100%; border-radius: 4px; }
+
+/* ---------- glossary ---------- */
+.term { position: relative; display: inline; }
+.term-btn { border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: help; border-bottom: 2px dotted var(--orange); line-height: inherit; }
+.term-btn:hover, .term-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--orange) 16%, transparent); border-radius: 4px; }
+.term-pop { position: absolute; z-index: 80; top: calc(100% + 6px); inset-inline-start: 0; width: min(300px, 80vw); background: var(--card); color: var(--ink);
+  border: 2px solid var(--line); border-radius: 14px; padding: 10px 12px; font-size: 14px; font-weight: 500; line-height: 1.7; box-shadow: 0 5px 0 var(--shade), 0 12px 26px rgba(0,0,0,.18); white-space: normal; }
+@media print { .term-btn { border: 0; } .term-pop { display: none; } }

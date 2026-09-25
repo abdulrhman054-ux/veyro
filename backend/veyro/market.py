@@ -41,6 +41,9 @@ def _cached(key: str, ttl: float, fn):
             return hit[1]
     val = fn()
     with _clock:
+        if len(_cache) > 3000:   # searches and many symbols: keep memory bounded
+            for k in sorted(_cache, key=lambda k: _cache[k][0])[:1500]:
+                _cache.pop(k, None)
         _cache[key] = (time.time(), val)
     return val
 
@@ -60,14 +63,35 @@ def last_price(ticker: str) -> dict | None:
             fi = yf.Ticker(ticker).fast_info
             p = fi["lastPrice"]
             if p is None or p != p or p <= 0:
-                return None
+                return _free_backup_quote(ticker, src)
             pc = fi.get("previousClose")
             return {"price": float(p), "currency": fi.get("currency") or "USD", "prev_close": float(pc) if pc and pc == pc else None,
                     "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds"), "source": SOURCE}
         except Exception as e:  # noqa: BLE001
             log.info("price unavailable for %s: %s", ticker, type(e).__name__)
-            return None
+        return _free_backup_quote(ticker, src)
     return _cached(f"px:{src}:{ticker}", 60, fetch)
+
+
+def _free_backup_history(ticker: str, period: str, src: str) -> dict | None:
+    if src == "stooq":
+        return None
+    from . import datasources
+    try:
+        return datasources.stooq_history(ticker, PERIOD_DAYS.get(period, 64))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _free_backup_quote(ticker: str, src: str) -> dict | None:
+    """Yahoo didn't answer: try the other free source (Stooq) for what it covers. No key, no subscription."""
+    if src == "stooq":
+        return None
+    from . import datasources
+    try:
+        return datasources.stooq_quote(ticker)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 PERIOD_DAYS = {"1mo": 23, "3mo": 64, "6mo": 128, "1y": 253, "2y": 505, "5y": 1260, "max": 100000}
@@ -87,13 +111,13 @@ def history(ticker: str, period: str = "3mo") -> dict | None:
             if h is not None and not h.empty:
                 h = h.dropna(subset=["Close"])   # NaN would break JSON and the charts
             if h is None or h.empty:
-                return None
+                return _free_backup_history(ticker, period, src)
             closes = [round(float(v), 4) for v in h["Close"].tolist()]
             dates = [d.strftime("%Y-%m-%d") for d in h.index]
             return {"ticker": ticker, "dates": dates, "closes": closes, "source": SOURCE}
         except Exception as e:  # noqa: BLE001
             log.info("history unavailable for %s: %s", ticker, type(e).__name__)
-            return None
+            return _free_backup_history(ticker, period, src)
     return _cached(f"hist:{src}:{ticker}:{period}", 600, fetch)
 
 
@@ -221,10 +245,19 @@ def search(query: str, limit: int = 8) -> list[dict]:
                     for x in s.quotes if x.get("quoteType") in _SEARCH_TYPES]
         except Exception as e:  # noqa: BLE001
             log.info("ticker search unavailable: %s", type(e).__name__)
-            return []
+            return None   # not cached: the next search tries again
     # Yahoo only understands Latin text; skip the network call for purely Arabic queries.
     if any("a" <= c <= "z" or c.isdigit() for c in q):
-        for r in _cached(f"search:{q}", 3600, fetch):
+        key = f"search:{q}"
+        with _clock:
+            hit = _cache.get(key)
+        found = hit[1] if hit and time.time() - hit[0] < 3600 else None
+        if found is None:
+            found = fetch()
+            if found is not None:
+                with _clock:
+                    _cache[key] = (time.time(), found)
+        for r in found or []:
             if r["symbol"] not in seen:
                 out.append(r)
                 seen.add(r["symbol"])

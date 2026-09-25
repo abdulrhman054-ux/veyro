@@ -67,8 +67,10 @@ export function TickerSearch({ value, onChange, onPick, onEnter, disabled, place
           else if (e.key === "Escape") setOpen(false);
           else if (e.key === "Enter") {
             if (showList && active >= 0 && hits[active]) { e.preventDefault(); pick(hits[active]); return; }
-            // A name typed (e.g. «أرامكو») rather than a symbol: take the best match.
-            if (!TICKER.test(value.trim().toUpperCase()) && hits[0]) { e.preventDefault(); pick(hits[0]); return; }
+            // A name typed (e.g. «أرامكو» or "apple") rather than a symbol: take the best match. "APPLE" looks like a
+            // symbol, so a typed word only counts as one if the search results contain that exact symbol.
+            const typedSym = value.trim().toUpperCase();
+            if (hits[0] && (!TICKER.test(typedSym) || !hits.some((h) => h.symbol === typedSym))) { e.preventDefault(); pick(hits[0]); return; }
             setOpen(false); onEnter?.();
           }
         }} />

@@ -20,7 +20,7 @@ const DATA = !IS_PACKED ? path.join(__dirname, "..", "data")
   : path.join(BASE_DIR, "Veyro-Data");
 const ICON = path.join(__dirname, "build", "icon.png");
 
-let win = null, splash = null, tray = null, backend = null, port = 8765, quitting = false, toldTray = false;
+let win = null, splash = null, tray = null, backend = null, port = 8765, quitting = false, toldTray = false, exitCode = null;
 
 const GOT_LOCK = app.requestSingleInstanceLock();
 if (!GOT_LOCK) { app.quit(); }
@@ -58,8 +58,10 @@ async function startBackend() {
            PYTHONDONTWRITEBYTECODE: "1" },
   });
   backend.stdout.pipe(log); backend.stderr.pipe(log);
-  backend.on("exit", (code) => { if (!quitting) showFatal(code); });
+  // If Python stops before a window exists, remember why; boot() shows it as soon as the splash is up.
+  backend.on("exit", (code) => { exitCode = code ?? "exit"; if (!quitting && (win || splash)) showFatal(exitCode); });
   for (let i = 0; i < 600; i++) {            // check often (open the window the moment it's ready), up to ~90 s
+    if (exitCode !== null) return false;     // it died: don't keep waiting
     if (await healthy()) return true;
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -102,7 +104,7 @@ async function boot() {
   splash = new BrowserWindow({ width: 520, height: 300, frame: false, resizable: false, backgroundColor: "#FBF6E9", icon: ICON, show: true });
   splash.loadURL(splashHtml());
   const ok = await backendReady;
-  if (!ok) { showFatal("timeout"); return; }
+  if (!ok) { showFatal(exitCode ?? "timeout"); return; }
 
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 980, minHeight: 680, show: false, backgroundColor: "#FBF6E9", title: "Veyro", icon: ICON,

@@ -10,6 +10,8 @@ import { KeyFigures, TeamAndMemory } from "./FrameworkPanels";
 import { PageHeader } from "../components/PageHeader";
 import { AskTeam, StarButton } from "../assistant/Assistant";
 import { BudgetPlan } from "../office/BudgetPlan";
+import { Glossed } from "../extras/Glossary";
+import { priceText } from "../office/Dialog";
 
 export function Report({ sessionId, active = true }: { sessionId: string | null; active?: boolean }) {
   const [s, setS] = useState<SessionFull | null>(null);
@@ -102,7 +104,7 @@ function ReportBody({ s, missing }: { s: SessionFull | null; missing: boolean })
           <span>{ar ? c.ar : c.en}</span>
         </div>
         <div className="facts-row">
-          <Fact label={t.priceAtVerdict} value={<span className="pixel ltr">{s.price_at_verdict ? fmtUsd(s.price_at_verdict, lang) : t.unavailable}</span>}
+          <Fact label={t.priceAtVerdict} value={<span className="pixel ltr">{s.price_at_verdict ? priceText(s.price_at_verdict, s.ticker, lang) : t.unavailable}</span>}
             note={s.price_source ? `${t.source}: ${s.price_source}` : undefined} />
           <Fact label={t.tradeDate} value={<span className="ltr">{s.trade_date}</span>} />
           <Fact label={t.sessionTime} value={fmtDate(s.finished_at ?? s.created_at, lang)} />
@@ -231,7 +233,7 @@ function TurnCard({ turn, demo, defaultOpen, openAll, round }: { turn: Turn; dem
             <span className="tagname" style={{ background: charColor(ch) }}>{charName(ch, lang)}</span>
             <span className="muted" style={{ fontWeight: 800, fontSize: 14 }}>{label}{round ? (lang === "ar" ? ` · الجولة ${round}` : ` · round ${round}`) : ""} · {charRole(ch, lang)}</span>
           </div>
-          <div style={{ lineHeight: 1.7 }}>{voice ?? (busy === "voice" ? t.translating : fail ? t.translateFail : "")}</div>
+          <div style={{ lineHeight: 1.7 }}>{voice ? <Glossed text={voice} /> : (busy === "voice" ? t.translating : fail ? t.translateFail : "")}</div>
         </div>
       </div>
       <button className="ghost btn" style={{ alignSelf: "flex-start" }} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t.hideDetails : t.details}</button>

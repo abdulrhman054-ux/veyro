@@ -44,6 +44,7 @@ export type Settings = {
   reasoning_depth: string;
   anthropic_workspace_id: string | null;
   keys: Record<string, KeyInfo>; estimate: Estimate; pricing?: Record<string, [number, number]>; limits?: { batch: number; screen: number }; data_source?: string;
+  spend?: { month: string; spent: number; sessions: number; unpriced_sessions: number; cap: number | null };
   team: { analysts: string[]; debate_rounds: number; risk_rounds: number };
   data_keys: Record<"fred" | "alpha_vantage" | "typesafe", { present: boolean; masked: string | null }>;
 };

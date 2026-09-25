@@ -189,3 +189,47 @@ def test_stooq_parsing_and_fallback(monkeypatch):
     assert q["price"] == 210.5 and q["prev_close"] == 208 and q["source"] == "Stooq"
     assert datasources.quote("2222.SR") is None     # not covered -> caller falls back to Yahoo
     assert datasources.stooq_symbol("GC=F") == "xauusd"
+
+
+def test_budget_cap_blocks_new_paid_sessions():
+    from veyro import budget
+    db.set_setting("monthly_cap_usd", 1.0)
+    with db.tx() as c:
+        c.execute("INSERT INTO sessions(id,ticker,trade_date,created_at,mode,lang,status,cost_usd) VALUES('cap1','AAPL','2026-09-01',?, 'real','en','done',1.25)",
+                  (db.now(),))
+    s = budget.spent()
+    assert s["spent"] >= 1.25 and budget.blocked()
+    db.set_setting("monthly_cap_usd", None)
+    assert not budget.blocked()
+
+
+def test_trust_scores_direction_against_index():
+    from veyro import assistant
+    rows = [{"rating": "Buy", "ret": 0.10, "spy_ret": 0.02, "created_at": "2026-09-01", "provider": "anthropic", "quick_model": "q", "deep_model": "d", "cost_usd": 1.0},
+            {"rating": "Sell", "ret": 0.05, "spy_ret": 0.01, "created_at": "2026-09-02", "provider": "anthropic", "quick_model": "q", "deep_model": "d", "cost_usd": 1.0},
+            {"rating": "Hold", "ret": 0.0, "spy_ret": 0.0, "created_at": "2026-08-02"}]
+    t = assistant.trust(rows)
+    assert t["overall"]["n"] == 2 and t["overall"]["hits"] == 1 and t["overall"]["hit_rate"] == 0.5
+    assert round(t["by_rating"]["Buy"]["avg_edge"], 4) == 0.08 and t["by_rating"]["Hold"]["n"] == 0
+    assert [m["month"] for m in t["months"]] == ["2026-08", "2026-09"]
+
+
+def test_saudi_benchmark_falls_back_to_ksa(monkeypatch):
+    monkeypatch.setattr(market, "history", lambda t, p="3mo": {"closes": [1.0]} if t == "^TASI.SR" else {"closes": [1.0] * 60})
+    assert runner.usable_benchmark("^TASI.SR") == "KSA"
+    monkeypatch.setattr(market, "history", lambda t, p="3mo": {"closes": [1.0] * 60})
+    assert runner.usable_benchmark("^TASI.SR") == "^TASI.SR"
+    assert runner.usable_benchmark("SPY") == "SPY"
+
+
+def test_yahoo_failure_falls_back_to_stooq(monkeypatch):
+    from veyro import datasources
+    monkeypatch.undo()   # use the real last_price with a failing Yahoo
+    class Boom:
+        def __getattr__(self, n):
+            raise RuntimeError("yahoo down")
+    monkeypatch.setattr(market, "yf", Boom())
+    monkeypatch.setattr(datasources, "current", lambda: "yahoo")
+    monkeypatch.setattr(datasources, "stooq_quote", lambda t: {"price": 99.0, "currency": "USD", "source": "Stooq", "as_of": "x"})
+    market._cache.clear()
+    assert market.last_price("MSFT")["source"] == "Stooq"

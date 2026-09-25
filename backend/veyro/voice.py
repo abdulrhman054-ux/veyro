@@ -110,7 +110,10 @@ class Voice:
             for k in ("line", "reason", "conviction"):
                 mk = re.search(rf'"{k}"\s*:\s*"((?:[^"\\]|\\.)*)"', raw)
                 if mk:
-                    data[k] = mk.group(1).encode().decode("unicode_escape") if "\\u" in mk.group(1) else mk.group(1)
+                    try:
+                        data[k] = json.loads(f'"{mk.group(1)}"')   # proper JSON string unescape (keeps Arabic intact)
+                    except json.JSONDecodeError:
+                        data[k] = mk.group(1).replace('\\"', '"').replace("\\n", " ")
         conv = str(data.get("conviction", "unstated")).lower()
         return {
             "line": clean_line(str(data.get("line") or re.sub(r"[{}]", "", raw))),

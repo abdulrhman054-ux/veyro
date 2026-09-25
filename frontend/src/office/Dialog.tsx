@@ -17,7 +17,12 @@ export function SpeechBox({ line, lang, onDone }: { line: Line; lang: Lang; onDo
   useEffect(() => {
     setSpoken(!reading);
   }, [line.id, reading]);
-  const text = useLineText(line.texts, line.turnId, lang, !line.demo && line.kind !== "error") ?? "";
+  const fetched = useLineText(line.texts, line.turnId, lang, !line.demo && line.kind !== "error");
+  // Never get stuck on an empty line: fall back to the other language, then to a short placeholder after a moment.
+  const [gaveUp, setGaveUp] = useState(false);
+  useEffect(() => { setGaveUp(false); const h = window.setTimeout(() => setGaveUp(true), 8000); return () => clearTimeout(h); }, [line.id]);
+  const other = line.texts?.[lang === "ar" ? "en" : "ar"] || line.text || "";
+  const text = fetched || (gaveUp ? other || (lang === "ar" ? "(السطر غير متوفر، التفاصيل في التقرير)" : "(line unavailable; details are in the report)") : "");
   const [n, setN] = useState(motionOff ? text.length : 0);
   const done = text.length > 0 && n >= text.length;
   const doneRef = useRef(onDone); doneRef.current = onDone;
@@ -127,7 +132,16 @@ export function IdleBox({ text, lang }: { text: string; lang: Lang }) {
 
 const CONF = ["#F2A43A", "#6CC38E", "#E0453A", "#3F7FE0", "#F7CE4F", "#8A5CC7", "#FFFFFF"];
 
-export function VerdictBox({ v, lang, onOpenReport, demo, sessionId, extra }: { v: Verdict; lang: Lang; onOpenReport: () => void; demo: boolean; sessionId: string | null; extra?: React.ReactNode }) {
+/** Tadawul (.SR) prices are riyals; everything else here is priced in dollars. */
+export function priceText(v: number, ticker: string | null | undefined, lang: Lang) {
+  if (ticker?.toUpperCase().endsWith(".SR")) {
+    const n = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+    return lang === "ar" ? `${n} ريال` : `SAR ${n}`;
+  }
+  return fmtUsd(v, lang);
+}
+
+export function VerdictBox({ v, lang, onOpenReport, demo, sessionId, extra, ticker: sessionTicker }: { v: Verdict; lang: Lang; onOpenReport: () => void; demo: boolean; sessionId: string | null; extra?: React.ReactNode; ticker?: string | null }) {
   const { t, motionOff } = usePrefs();
   const r = RATING[v.rating] ?? RATING.REVIEW;
   const c = CONVICTION[v.conviction] ?? CONVICTION.unstated;
@@ -153,7 +167,7 @@ export function VerdictBox({ v, lang, onOpenReport, demo, sessionId, extra }: { 
         <span className="meter" aria-hidden="true">{[1, 2, 3].map((i) => <span key={i} className={i <= c.level ? "on" : ""} />)}</span>
         <span style={{ fontWeight: 700 }}>{lang === "ar" ? c.ar : c.en}</span>
         <span style={{ fontWeight: 800 }}>· {t.priceAtVerdict}:</span>
-        <span className="pixel ltr">{price ? fmtUsd(price, lang) : t.unavailable}</span>
+        <span className="pixel ltr">{price ? priceText(price, sessionTicker, lang) : t.unavailable}</span>
       </div>
       <div className="row" style={{ justifyContent: "center", marginTop: 10 }}>
         <button className="primary green btn" style={{ height: 42, fontSize: 16 }} onClick={onOpenReport}>{t.openReport}</button>

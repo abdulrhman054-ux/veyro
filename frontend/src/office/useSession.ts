@@ -63,7 +63,9 @@ function reducer(s: SessionState, a: Action): SessionState {
         agents: settle(s.agents), stopping: false };
     case "stop": {
       // Stop means stop now: drop the lines still waiting to be played and put everyone back at their desk.
-      if (s.ended) return s;
+      // Already finished on the server (lines still playing, or a replayed result): just stop the playback.
+      if (s.ended) return { ...s, queue: [], current: null, rethinking: [], agents: settle(s.agents), thinkingSince: null,
+        verdictShown: !!s.verdict };
       return { ...s, stopping: true, queue: [], current: null, rethinking: [], agents: settle(s.agents), thinkingSince: null };
     }
     case "showVerdict":

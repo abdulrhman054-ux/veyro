@@ -166,6 +166,7 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
           <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>{lang === "ar"
             ? "السريع: للمحللين والنقاش وكلام الشخصيات (أغلب الاستهلاك). العميق: لقرار ليو وخطة الاستثمار. تقدر تختار أي نموذج في الخانتين."
             : "Quick: analysts, debate and the characters' lines (most of the usage). Deep: Leo's decision and investment plan. Any model works in either slot."}</p>
+          <BudgetCap settings={settings} onChange={onChange} lang={lang} />
           <div className="toggle"><span>{t.estimate}</span>
             <span className="pixel ltr">{e.known && e.low != null && e.high != null ? `${fmtUsd(e.low, lang)} – ${fmtUsd(e.high, lang)}` : t.unknownPrice}</span></div>
         </section>
@@ -322,6 +323,37 @@ function TeamSettings({ settings, onChange }: { settings: Settings; onChange: (s
       </div>
       {err && <div className="warnstrip" role="alert">{err}</div>}
     </section>
+  );
+}
+
+/** Monthly spending cap for analyses: once reached, no new paid session starts until next month (or you raise it). */
+function BudgetCap({ settings, onChange, lang }: { settings: Settings; onChange: (s: Settings) => void; lang: "ar" | "en" }) {
+  const ar = lang === "ar";
+  const sp = settings.spend;
+  const [v, setV] = useState(sp?.cap ? String(sp.cap) : "");
+  const [msg, setMsg] = useState<string | null>(null);
+  const save = async () => {
+    const n = v.trim() === "" ? 0 : Number(v);
+    if (!(n >= 0)) { setMsg(ar ? "اكتب رقم صحيح." : "Enter a valid number."); return; }
+    try { onChange(await api.put<Settings>("/api/settings", { monthly_cap_usd: n })); setMsg(ar ? "انحفظ ✓" : "Saved ✓"); } catch { setMsg(ar ? "ما انحفظ." : "Not saved."); }
+  };
+  const pct = sp?.cap ? Math.min(1, sp.spent / sp.cap) : 0;
+  return (
+    <div className="stack" style={{ gap: 6, padding: 10, borderRadius: 16, background: "var(--cream)" }}>
+      <label className="label" htmlFor="cap">{ar ? "سقف ميزانية التحليل الشهرية (دولار)" : "Monthly analysis budget cap (USD)"}</label>
+      <div className="row" style={{ flexWrap: "nowrap" }}>
+        <input id="cap" className="field ltr" inputMode="decimal" style={{ flex: 1, minWidth: 0, height: 40 }} placeholder={ar ? "بدون سقف" : "no cap"}
+          value={v} onChange={(e) => { setV(e.target.value); setMsg(null); }} />
+        <button className="ghost btn" onClick={save}>{ar ? "حفظ" : "Save"}</button>
+      </div>
+      {sp && <>
+        <div className="capbar" aria-hidden="true"><i style={{ width: `${pct * 100}%`, background: pct >= 1 ? "var(--sell)" : pct > 0.8 ? "var(--orange)" : "var(--buy)" }} /></div>
+        <span style={{ fontSize: 13 }}>{ar ? `صرفت هذا الشهر ${"$"}${sp.spent.toFixed(2)}${sp.cap ? ` من ${"$"}${sp.cap}` : ""} في ${sp.sessions} جلسة.` : `Spent this month: $${sp.spent.toFixed(2)}${sp.cap ? ` of $${sp.cap}` : ""} across ${sp.sessions} sessions.`}
+          {sp.unpriced_sessions > 0 && <span className="muted">{ar ? ` (${sp.unpriced_sessions} جلسة بمزوّد سعره غير معروف ما انحسبت)` : ` (${sp.unpriced_sessions} sessions on a provider with unknown prices aren't counted)`}</span>}</span>
+      </>}
+      <span className="muted" style={{ fontSize: 12 }}>{ar ? "لما يوصل الصرف للسقف، ما تبدأ جلسات مدفوعة جديدة (الوضع التجريبي يبقى متاح). المسح يوقف عند السقف." : "Once spending reaches the cap no new paid session starts (demo still works); scans stop at the cap."}</span>
+      {msg && <span style={{ fontSize: 13 }}>{msg}</span>}
+    </div>
   );
 }
 

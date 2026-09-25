@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS paper (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticker TEXT NOT NULL, shares REAL NOT NULL, entry_price REAL NOT NULL, currency TEXT,
   bench TEXT, bench_entry REAL, opened_at TEXT NOT NULL, session_id TEXT, rating TEXT,
-  closed_at TEXT, exit_price REAL
+  closed_at TEXT, exit_price REAL, bench_exit REAL
 );
 CREATE TABLE IF NOT EXISTS price_alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,6 +94,10 @@ def conn() -> sqlite3.Connection:
             cols = {r[1] for r in _conn.execute("PRAGMA table_info(sessions)")}
             if "config_json" not in cols:  # databases created before this column existed
                 _conn.execute("ALTER TABLE sessions ADD COLUMN config_json TEXT")
+                _conn.commit()
+            pcols = {r[1] for r in _conn.execute("PRAGMA table_info(paper)")}
+            if "bench_exit" not in pcols:   # virtual portfolio from an earlier build
+                _conn.execute("ALTER TABLE paper ADD COLUMN bench_exit REAL")
                 _conn.commit()
         return _conn
 
@@ -212,7 +216,7 @@ def get_session(sid: str) -> dict | None:
 
 
 def list_sessions(limit: int = 200, scan_id: str | None = None) -> list[dict]:
-    cols = ("id,ticker,trade_date,created_at,finished_at,mode,provider,lang,status,rating,verdict_json,"
+    cols = ("id,ticker,trade_date,created_at,finished_at,mode,provider,quick_model,deep_model,lang,status,rating,verdict_json,"
             "price_at_verdict,spy_at_verdict,price_time,price_source,cost_usd,scan_id,config_json")
     if scan_id:
         rows = q(f"SELECT {cols} FROM sessions WHERE scan_id=? ORDER BY created_at", (scan_id,))

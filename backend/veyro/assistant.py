@@ -199,6 +199,12 @@ def run_morning(loop, lang: str | None = None) -> str | None:
         db.set_setting("assist:morning_last", datetime.now().strftime("%Y-%m-%d"))
         return None
     lang = lang or prefs()["ui_lang"]
+    from . import budget
+    if budget.blocked():
+        add_alert("morning", None, "Leo", "ما شغّلت التقرير الصباحي لأن ميزانية التحليل لهذا الشهر خلصت. تقدر ترفعها من الإعدادات. زئير!",
+                  "I skipped the morning report: this month's analysis budget is used up. You can raise it in Settings. roar!")
+        db.set_setting("assist:morning_last", datetime.now().strftime("%Y-%m-%d"))
+        return None
     tickers = favorites()[:max(1, min(MAX_BATCH, int(prefs()["morning_count"] or 5)))]
     scan_id = runner.start_scan(loop, "watchlist", tickers, None, None, lang, False)
     db.set_setting("assist:morning_last", datetime.now().strftime("%Y-%m-%d"))
@@ -331,3 +337,46 @@ def learning(enrich) -> dict:
     return {"month": month, "this_month": block([r for r in rows if (r.get("created_at") or "").startswith(month)]),
             "all_time": block(rows),
             "framework": {"settled": len(fw), "mean_alpha": (sum(alphas) / len(alphas)) if alphas else None}}
+
+
+def trust(rows: list[dict]) -> dict:
+    """How the team's calls did, with no model involved: each finished real call is scored by the stock's
+    return since the verdict minus its benchmark's (the market index) over the same time.
+    Buy/Overweight is "right" when it beat the index, Underweight/Sell when it lagged. Hold isn't scored."""
+    DIR = {"Buy": 1, "Overweight": 1, "Hold": 0, "Underweight": -1, "Sell": -1}
+
+    def scored(r):
+        if r.get("ret") is None or r.get("spy_ret") is None or r.get("rating") not in DIR or DIR[r["rating"]] == 0:
+            return None
+        ex = r["ret"] - r["spy_ret"]
+        return {"hit": ex * DIR[r["rating"]] > 0, "excess": ex, "signed": ex * DIR[r["rating"]]}
+
+    def agg(items):
+        s = [x for x in items if x]
+        n = len(s)
+        return {"n": n, "hits": sum(x["hit"] for x in s), "hit_rate": (sum(x["hit"] for x in s) / n) if n else None,
+                "avg_edge": (sum(x["signed"] for x in s) / n) if n else None}
+
+    pairs = [(r, scored(r)) for r in rows]
+    by_month: dict[str, list] = {}
+    by_rating: dict[str, list] = {}
+    by_model: dict[str, dict] = {}
+    for r, sc in pairs:
+        by_month.setdefault((r.get("created_at") or "")[:7], []).append(sc)
+        by_rating.setdefault(r.get("rating") or "REVIEW", []).append(sc)
+        key = f"{r.get('provider') or '?'} · {r.get('quick_model') or '?'} / {r.get('deep_model') or '?'}"
+        m = by_model.setdefault(key, {"items": [], "cost": 0.0, "sessions": 0, "priced": 0})
+        m["items"].append(sc)
+        m["sessions"] += 1
+        if r.get("cost_usd") is not None:
+            m["cost"] += r["cost_usd"]
+            m["priced"] += 1
+    months = sorted(k for k in by_month if k)[-6:]
+    return {
+        "overall": {**agg([sc for _, sc in pairs]), "sessions": len(rows)},
+        "months": [{"month": k, **agg(by_month[k]), "sessions": len(by_month[k])} for k in months],
+        "by_rating": {k: {**agg(v), "sessions": len(v)} for k, v in by_rating.items()},
+        "by_model": [{"model": k, **agg(v["items"]), "sessions": v["sessions"],
+                      "avg_cost": (v["cost"] / v["priced"]) if v["priced"] else None} for k, v in by_model.items()],
+        "min_sample": 10,
+    }

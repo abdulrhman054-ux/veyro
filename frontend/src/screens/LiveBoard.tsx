@@ -40,14 +40,19 @@ export function LiveBoard({ active, onAnalyze }: { active: boolean; onAnalyze: (
     return [...new Set([...cat.boards[market], ...cat.indices[market], ...cat.metals].map((x) => x.symbol).concat(favorites))];
   }, [cat, market, favorites]);
 
-  // One socket while the screen is open; it only streams what this screen shows.
+  const wantRef = useRef<string[]>([]);
+  wantRef.current = want;
+
+  // One socket while the screen is open; it only streams what this screen shows (always the current list,
+  // also after a reconnect).
   useEffect(() => {
     if (!active || !cat) return;
-    let alive = true, retry = 0;
+    let alive = true, retry = 0, timer = 0;
     const open = () => {
+      if (!alive) return;
       const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/live`);
       wsRef.current = ws;
-      ws.onopen = () => { retry = 0; ws.send(JSON.stringify({ want })); };
+      ws.onopen = () => { retry = 0; ws.send(JSON.stringify({ want: wantRef.current })); };
       ws.onmessage = (m) => {
         let msg: { type: string; quotes?: Quote[]; stream?: boolean };
         try { msg = JSON.parse(m.data); } catch { return; }
@@ -71,10 +76,10 @@ export function LiveBoard({ active, onAnalyze }: { active: boolean; onAnalyze: (
           return next;
         });
       };
-      ws.onclose = () => { if (!alive) return; setConn("off"); window.setTimeout(open, Math.min(15000, 1000 * 2 ** retry++)); };
+      ws.onclose = () => { if (!alive) return; setConn("off"); timer = window.setTimeout(open, Math.min(15000, 1000 * 2 ** retry++)); };
     };
     open();
-    return () => { alive = false; wsRef.current?.close(); wsRef.current = null; };
+    return () => { alive = false; clearTimeout(timer); wsRef.current?.close(); wsRef.current = null; };
   }, [active, cat]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Switching market or favourites: tell the open socket what to stream now.

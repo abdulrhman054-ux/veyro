@@ -4,6 +4,7 @@ import { SpriteSvg, charColor } from "../art/Sprite";
 import { charName, type CharKey } from "../i18n";
 import { usePrefs } from "../prefs";
 import { BudgetPlan, money, type Plan } from "./BudgetPlan";
+import { Glossed } from "../extras/Glossary";
 
 type Guide = { profile: { amount: number; currency: string; market: string; risk: string }; plan: Plan;
   intro: string | null; closing: string | null; stocks: { ticker: string; simple: string }[];
@@ -46,7 +47,7 @@ export function BeginnerGuide({ scanId, onOpen, onClose }: { scanId: string; onO
             <section className="stack" style={{ gap: 8 }}>
               <b style={{ fontSize: 17 }}>{ar ? "وش لقى الفريق، بكلام بسيط" : "What the team found, in plain words"}</b>
               {g.stocks.map((s) => (
-                <div key={s.ticker} className="logitem"><b className="pixel ltr">{s.ticker}</b><div style={{ lineHeight: 1.8 }}>{s.simple}</div></div>
+                <div key={s.ticker} className="logitem"><b className="pixel ltr">{s.ticker}</b><div style={{ lineHeight: 1.8 }}><Glossed text={s.simple} /></div></div>
               ))}
             </section>
           )}
@@ -57,7 +58,7 @@ export function BeginnerGuide({ scanId, onOpen, onClose }: { scanId: string; onO
                 <SpriteSvg name={tp.character} px={1} />
                 <div className="stack" style={{ gap: 2 }}>
                   <b style={{ color: charColor(tp.character) }}>{charName(tp.character, lang)}</b>
-                  <span style={{ lineHeight: 1.8 }}>{tp.tip}</span>
+                  <span style={{ lineHeight: 1.8 }}><Glossed text={tp.tip} /></span>
                 </div>
               </div>
             ))}
@@ -72,7 +73,7 @@ export function BeginnerGuide({ scanId, onOpen, onClose }: { scanId: string; onO
                   <SpriteSvg name={tp.character} px={1} />
                   <div className="stack" style={{ gap: 2 }}>
                     <b style={{ color: charColor(tp.character) }}>{charName(tp.character, lang)}</b>
-                    <span style={{ lineHeight: 1.8 }}>{tp.tip}</span>
+                    <span style={{ lineHeight: 1.8 }}><Glossed text={tp.tip} /></span>
                   </div>
                 </div>
               ))}

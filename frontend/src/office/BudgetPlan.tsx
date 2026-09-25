@@ -112,8 +112,8 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
 
       </div>
       <p className="muted" style={{ margin: 0, fontSize: 12, lineHeight: 1.7 }}>{ar
-        ? "الأوزان من قرارات الفريق (شراء ضعف الزيادة التدريجية، وقوة القناعة تعدّلها)، وبحد أقصى 40٪ للسهم الواحد، بأسهم كاملة وأسعار Yahoo الحالية. مثال للتفكير وليس نصيحة مالية، ولا تنسَ رسوم الوسيط."
-        : "Weights come from the team's calls (Buy counts double Overweight, adjusted by conviction), capped at 40% per stock, in whole shares at current Yahoo prices. An illustration to think with, not financial advice; remember broker fees."}</p>
+        ? "الأوزان من قرارات الفريق (شراء ضعف الزيادة التدريجية، وقوة القناعة تعدّلها)، وبحد أقصى 40٪ للسهم الواحد (إلا إذا المبلغ صغير وسهم كامل واحد يتجاوزها، عشان ما يبقى المبلغ عاطل)، بأسهم كاملة وأسعار Yahoo الحالية. مثال للتفكير وليس نصيحة مالية، ولا تنسَ رسوم الوسيط."
+        : "Weights come from the team's calls (Buy counts double Overweight, adjusted by conviction), capped at 40% per stock (unless the amount is small and one whole share is more, so the money isn't left idle), in whole shares at current Yahoo prices. An illustration to think with, not financial advice; remember broker fees."}</p>
     </section>
   );
 }

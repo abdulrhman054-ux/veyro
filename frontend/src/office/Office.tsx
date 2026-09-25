@@ -4,6 +4,7 @@ import { charColor } from "../art/Sprite";
 import { click, startJingle, unlockAudio } from "../audio";
 import { CHAR_ORDER, NODE_LABEL, RATING, charName, fmtNum, fmtPct, fmtUsd, type CharKey } from "../i18n";
 import { Markdown } from "../components/Markdown";
+import { Glossed } from "../extras/Glossary";
 import { usePrefs } from "../prefs";
 import { EndedBox, IdleBox, SpeechBox, VerdictBox, WaitBox } from "./Dialog";
 import { BudgetPlan, money } from "./BudgetPlan";
@@ -22,7 +23,7 @@ type Mode = "single" | "watchlist" | "scan" | "beginner";
 type BPick = { symbol: string; name_en: string; name_ar: string; sector: string; style: string; price: number; currency: string; price_in_budget: number };
 type ScanView = { id: string; tickers: string[]; source: Candidate[] | null; sessions: string[]; results: Record<number, string | null>;
   ranking: { ticker: string; rating: string | null; session_id: string; status: string }[] | null; done: boolean; stopped?: boolean;
-  budget?: Budget | null; beginner?: boolean; prescreen?: Prescreen[] | null; reused?: Record<number, boolean> };
+  budget?: Budget | null; beginner?: boolean; prescreen?: Prescreen[] | null; reused?: Record<number, boolean>; capped?: boolean };
 type Prescreen = { ticker: string; score: number | null; trend?: number; ret_3m?: number; vol?: number };
 export type Budget = { amount: number; currency: "USD" | "SAR" };
 
@@ -195,6 +196,11 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
         const n = tickers ? tickers.length : count;
         const e = settings?.estimate;
         const paid = economy && mode !== "beginner" && n > econTop ? econTop : n;
+        const sp = settings?.spend;
+        if (!demo && sp?.cap && e?.known && e.high != null && sp.spent + e.high * paid > sp.cap
+          && !window.confirm(lang === "ar"
+            ? `تنبيه الميزانية: صرفت ${"$"}${sp.spent.toFixed(2)} من ${"$"}${sp.cap} هذا الشهر، وهالتحليل ممكن يوصل ${fmtUsd(e.high * paid, lang)}. المسح يوقف تلقائياً عند السقف. نكمل؟`
+            : `Budget check: $${sp.spent.toFixed(2)} of $${sp.cap} spent this month, and this run could reach ${fmtUsd(e.high * paid, lang)}. The run stops at the cap. Continue?`)) return;
         if (!demo && paid > 5 && e?.known && e.high != null
           && !window.confirm(lang === "ar"
             ? `بتحلل ${paid} أسهم، كل سهم جلسة كاملة. التكلفة التقديرية ${fmtUsd((e.low ?? 0) * paid, lang)} – ${fmtUsd(e.high * paid, lang)}. نكمل؟`
@@ -219,6 +225,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
             if (ev.type === "scan_result") return { ...s, results: { ...s.results, [ev.index]: ev.rating } };
             if (ev.type === "scan_ranked") return { ...s, ranking: ev.ranking };
             if (ev.type === "end") return { ...s, done: true };
+            if ((ev as { type: string }).type === "scan_capped") return { ...s, capped: true };
             return s;
           });
         });
@@ -226,7 +233,9 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
     } catch (e) {
       const code = e instanceof ApiError ? e.code : "error";
       setErr(code === "invalid_ticker" ? t.invalidTicker : code === "screener_unavailable" ? t.unavailable
-        : code === "bad_budget" ? (lang === "ar" ? "المبلغ غير صالح." : "That amount isn't valid.") : t.error);
+        : code === "bad_budget" ? (lang === "ar" ? "المبلغ غير صالح." : "That amount isn't valid.")
+        : code === "budget_cap" ? (lang === "ar" ? "وصلت سقف ميزانية التحليل لهذا الشهر. ارفعه من الإعدادات أو جرّب الوضع التجريبي." : "You've reached this month's analysis budget cap. Raise it in Settings or use demo mode.")
+        : t.error);
     }
   }
 
@@ -414,6 +423,8 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
         )}
         <label className="check"><input type="checkbox" checked={demo} onChange={(e) => setDemo(e.target.checked)} disabled={running} />{t.demoMode}</label>
         {prefs.showCost && estimate && <span className="estimate">{t.estimate}: <b className="ltr">{estimate}</b></span>}
+        {prefs.showCost && settings?.spend?.cap && !demo && <span className={`chip mkt${settings.spend.spent >= settings.spend.cap ? " closed" : ""}`} title={lang === "ar" ? "صرف هذا الشهر من سقف الميزانية" : "This month's spend against your cap"}>
+          <i />{lang === "ar" ? "الشهر" : "Month"} <span className="ltr">${settings.spend.spent.toFixed(2)} / ${settings.spend.cap}</span></span>}
         <span style={{ flex: 1 }} />
         {running
           ? <button className="ghost btn" onClick={stop} disabled={stopReq} aria-busy={stopReq}>{stopReq ? (lang === "ar" ? "نوقف…" : "Stopping…") : t.stop}</button>
@@ -508,7 +519,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
             scene={state.ended && !state.verdict && !state.current ? "office" : scene} heat={heat} verdictTone={verdictTone === "none" ? null : verdictTone}
             speakTone={speakTone}>
             {state.current ? <SpeechBox key={state.current.id} line={state.current} lang={lang} onDone={next} />
-              : state.verdictShown && state.verdict ? <VerdictBox v={state.verdict} lang={lang} demo={state.mode === "demo"} sessionId={sessionId} onOpenReport={() => sessionId && onOpenReport(sessionId)} extra={verdictExtra} />
+              : state.verdictShown && state.verdict ? <VerdictBox v={state.verdict} lang={lang} demo={state.mode === "demo"} sessionId={sessionId} ticker={state.ticker} onOpenReport={() => sessionId && onOpenReport(sessionId)} extra={verdictExtra} />
               : !sessionId ? <IdleBox lang={lang} text={demo ? `${t.welcome} ${t.welcomeDemo}` : t.welcome} />
               : !state.ended ? <WaitBox lang={lang} agents={state.agents} since={state.thinkingSince} stopping={state.stopping} loaded={state.id != null} />
               : <EndedBox lang={lang} status={state.status} />}
@@ -518,6 +529,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
         <aside className="side" aria-label={t.minutes}>
           {scan && (
             <div className="card" style={{ padding: 16 }}>
+              {scan.capped && <div className="warnstrip" role="alert" style={{ marginBottom: 8 }}>{lang === "ar" ? "وقفنا المسح لأن ميزانية التحليل لهذا الشهر خلصت. النتائج اللي خلصت محفوظة." : "The scan stopped: this month's analysis budget is used up. Finished results are kept."}</div>}
               <div className="row" style={{ justifyContent: "space-between" }}><h2 style={{ fontSize: 19 }}>{t.scanProgress}</h2><span className="pixel ltr muted">{Object.keys(scan.results).length} / {scan.tickers.length}</span></div>
               <ol className="board-rank" style={{ margin: "10px 0 0", padding: 0, maxHeight: 260, overflowY: "auto" }}>
                 {scan.tickers.map((tk, i) => {
@@ -636,7 +648,7 @@ function LogItem({ l, sessionId }: { l: Line; sessionId: string | null }) {
           <button className="linkish" style={{ fontSize: 12 }} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t.hideDetails : t.fullAnalysis}</button>
         )}
       </div>
-      <div style={{ fontSize: 14, lineHeight: 1.6 }}>{text ?? "…"}</div>
+      <div style={{ fontSize: 14, lineHeight: 1.6 }}>{text ? <Glossed text={text} /> : "…"}</div>
       {open && (
         <div className="detail" style={{ marginTop: 6, maxHeight: 420, overflowY: "auto", fontSize: 14 }}>
           {busy ? <span className="muted">{lang === "ar" ? t.translating : "…"}</span>

@@ -214,9 +214,22 @@ def analysts_for(asset_type: str, analysts: list[str]) -> list[str]:
 EXTRA_BENCHMARKS = {".SR": "^TASI.SR"}
 
 
-def benchmark_map() -> dict:
+# If Yahoo has no usable TASI history (it has kept only the latest day at times), Saudi calls are measured
+# against the iShares MSCI Saudi Arabia ETF (KSA): full free history, and the riyal is pegged to the dollar,
+# so its returns track the Saudi market closely. The session records which index was actually used.
+SAUDI_FALLBACK = "KSA"
+
+
+def usable_benchmark(bench: str) -> str:
+    if bench != EXTRA_BENCHMARKS[".SR"]:
+        return bench
+    h = market.history(bench, "3mo")
+    return bench if h and len(h.get("closes") or []) >= 20 else SAUDI_FALLBACK
+
+
+def benchmark_map(saudi: str | None = None) -> dict:
     from tradingagents.default_config import DEFAULT_CONFIG
-    return {**EXTRA_BENCHMARKS, **DEFAULT_CONFIG.get("benchmark_map", {})}
+    return {**EXTRA_BENCHMARKS, **({".SR": saudi} if saudi else {}), **DEFAULT_CONFIG.get("benchmark_map", {})}
 
 
 def benchmark_for(ticker: str) -> str:
@@ -397,10 +410,14 @@ def run_session(sid: str, ticker: str, lang: str, demo: bool, trade_date: str | 
     finally:
         em.close()
         if not bus.closed:   # backstop: whatever happened above, the UI and scans always get an end
-            bus.publish({"type": "end", "status": "error"})
+            stopped = cancel.is_set()
+            if stopped:
+                bus.publish(error_event("cancelled", lang))
+            bus.publish({"type": "end", "status": "cancelled" if stopped else "error"})
             s = db.get_session(sid)
             if s and s.get("status") == "running":
-                db.update_session(sid, status="error", error="incomplete", finished_at=db.now())
+                db.update_session(sid, status="cancelled" if stopped else "error", error=None if stopped else "incomplete",
+                                  finished_at=db.now())
 
 
 # ---------------------------------------------------------------- how the characters hand over to each other
@@ -462,7 +479,7 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
     team = team_settings()
     symbol, asset_type = resolve_instrument(ticker)
     analysts = analysts_for(asset_type, team["analysts"])
-    bench = benchmark_for(symbol)
+    bench = usable_benchmark(benchmark_for(symbol))
     for dk, env in (("data:fred", "FRED_API_KEY"), ("data:alpha_vantage", "ALPHA_VANTAGE_API_KEY"), ("data:typesafe", "TYPESAFE_API_KEY")):
         v = get_secret(dk)
         if v:
@@ -486,7 +503,7 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                 "max_debate_rounds": team["debate_rounds"], "max_risk_discuss_rounds": team["risk_rounds"],
                 "checkpoint_enabled": True,  # a stopped or crashed run resumes from its last finished step
                 **reasoning_config(provider),
-                "benchmark_map": benchmark_map(),
+                "benchmark_map": benchmark_map(bench if symbol.upper().endswith(".SR") else None),
                 "data_vendors": __import__("veyro.datasources", fromlist=["x"]).framework_vendors(DEFAULT_CONFIG["data_vendors"]),
                 "results_dir": str(TA_HOME / "logs"), "data_cache_dir": str(TA_HOME / "cache"),
                 "memory_log_path": str(TA_HOME / "memory" / "trading_memory.md")})
@@ -678,6 +695,8 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
             px = {"price": p0, "spy": b0, "as_of": trade_date, "source": market.SOURCE + " (close)" if p0 else None}
         else:
             px = verdict_price(ticker, bench)
+        if cancel.is_set():
+            return []   # stopped while Leo was speaking: keep the session "cancelled", don't record a verdict
         usage = tracker.summary()
         verdict = {"rating": rating, "line": v["line"], "reason": v["reason"], "conviction": v["conviction"],
                    "lang": lang, "turn_id": tid, "sources": list(sources.values()),
@@ -903,8 +922,11 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
         for i, t in enumerate(tickers):
             if stop.is_set():
                 break
-            from . import extras
+            from . import budget as spend_cap, extras   # not "budget": that name is this scan's amount to invest
             old = extras.reusable(t) if reuse else None
+            if not old and not demo and spend_cap.blocked():
+                bus.publish({"type": "scan_capped", "index": i, "spend": spend_cap.spent()})
+                break   # this month's cap is reached: no more paid sessions
             if old:
                 # Already analysed today with these models: show that result again instead of paying twice.
                 sid = old["id"]

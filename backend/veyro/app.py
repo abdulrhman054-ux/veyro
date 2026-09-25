@@ -31,8 +31,13 @@ log = logging.getLogger("veyro")
 TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-=^]{0,14}$")
 
 
+MAIN_LOOP: asyncio.AbstractEventLoop | None = None   # event loop for session buses when work runs in a worker thread
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    global MAIN_LOOP
+    MAIN_LOOP = asyncio.get_running_loop()
     db.conn()
     db.mark_orphans()
     exec_service.init()
@@ -51,6 +56,28 @@ app = FastAPI(title="Veyro", lifespan=lifespan, docs_url=None, redoc_url=None, o
 
 app.include_router(exec_router)
 app.include_router(relay_router)
+
+
+@app.middleware("http")
+async def same_origin_only(request, call_next):
+    """Changes can only come from Veyro's own page: another website open in the browser can't drive the
+    local API (requests without an Origin header, e.g. local tools, are allowed)."""
+    if request.method in ("POST", "PUT", "DELETE", "PATCH") and request.url.path.startswith("/api/"):
+        origin = request.headers.get("origin")
+        if origin and not _same_origin(origin, request.headers.get("host", "")):
+            return JSONResponse({"error": "origin"}, status_code=403)
+    return await call_next(request)
+
+
+def _same_origin(origin: str, host: str) -> bool:
+    from urllib.parse import urlparse
+    o = urlparse(origin)
+    return o.scheme in ("http", "https") and bool(host) and o.netloc == host
+
+
+def _ws_ok(ws: WebSocket) -> bool:
+    origin = ws.headers.get("origin")
+    return not origin or _same_origin(origin, ws.headers.get("host", ""))
 
 
 @app.exception_handler(Exception)
@@ -77,6 +104,7 @@ class SettingsIn(BaseModel):
     reasoning_depth: str | None = None
     anthropic_workspace_id: str | None = None
     data_source: str | None = None
+    monthly_cap_usd: float | None = None   # 0 = no cap
     custom_model: bool = False   # the user typed a model ID that isn't in the framework's list
 
 
@@ -94,6 +122,7 @@ def settings_payload() -> dict:
         "keys": keys,
         "pricing": {m: list(v) for m, v in PRICING.items()},
         "limits": {"batch": MAX_BATCH, "screen": MAX_SCREEN},
+        "spend": __import__("veyro.budget", fromlist=["x"]).spent(),
         "data_source": __import__("veyro.datasources", fromlist=["x"]).current(),
         "estimate": runner.estimate(provider, quick, deep),
         "team": runner.team_settings(),
@@ -137,6 +166,10 @@ def put_settings(s: SettingsIn):
         if ws and not re.fullmatch(r"wrkspc_[A-Za-z0-9]{8,64}", ws):
             raise HTTPException(400, "bad_workspace")
         db.set_setting("anthropic_workspace_id", ws or None)
+    if s.monthly_cap_usd is not None:
+        if not 0 <= s.monthly_cap_usd <= 100000:
+            raise HTTPException(400, "bad_cap")
+        db.set_setting("monthly_cap_usd", s.monthly_cap_usd or None)
     if s.data_source is not None:
         from .datasources import SOURCES
         if s.data_source not in SOURCES:
@@ -320,6 +353,14 @@ def _budget(amount: float | None, currency: str) -> dict | None:
     return {"amount": round(float(amount), 2), "currency": currency}
 
 
+def _cap_reached():
+    """Refuse new paid analyses once this month's cap is reached (demo runs are free and always allowed)."""
+    from . import budget
+    if budget.blocked():
+        return JSONResponse({"ok": False, "code": "budget_cap", "spend": budget.spent()})
+    return None
+
+
 def _max_price(b: dict | None) -> float | None:
     """The budget in USD (screeners list US stocks), so only affordable candidates are suggested."""
     if not b:
@@ -342,6 +383,8 @@ async def create_session(s: SessionIn):
     if s.lang not in ("ar", "en"):
         raise HTTPException(400, "invalid_lang")
     t = _ticker(s.ticker)
+    if not s.demo and (r := _cap_reached()):
+        return r
     sid = runner.start_session(asyncio.get_running_loop(), t, s.lang, s.demo, trade_date=_trade_date(s.trade_date),
                                budget=_budget(s.budget, s.budget_currency))
     return {"id": sid}
@@ -482,10 +525,21 @@ class ScanIn(BaseModel):
     budget_currency: str = "USD"
 
 
+def _loop() -> asyncio.AbstractEventLoop:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return MAIN_LOOP
+
+
+# Plain "def": the pre-screen, screeners and FX lookups are network calls; FastAPI runs this in a worker
+# thread so the event loop (and every live WebSocket) keeps flowing meanwhile.
 @app.post("/api/scans")
-async def create_scan(s: ScanIn):
+def create_scan(s: ScanIn):
     if s.lang not in ("ar", "en"):
         raise HTTPException(400, "invalid_lang")
+    if not s.demo and (r := _cap_reached()):
+        return r
     source = None
     if s.kind == "watchlist":
         tickers = list(dict.fromkeys(_ticker(t) for t in s.tickers))
@@ -506,7 +560,7 @@ async def create_scan(s: ScanIn):
         from . import extras
         prescreen = extras.prescreen(tickers)
         tickers = [r["ticker"] for r in prescreen if r["score"] is not None][:s.economy_top] or tickers[:s.economy_top]
-    scan_id = runner.start_scan(asyncio.get_running_loop(), s.kind, tickers, s.screener, source, s.lang, s.demo,
+    scan_id = runner.start_scan(_loop(), s.kind, tickers, s.screener, source, s.lang, s.demo,
                                 budget=_budget(s.budget, s.budget_currency), reuse=s.reuse and not s.demo)
     return {"id": scan_id, "tickers": tickers, "source": source, "prescreen": prescreen,
             "estimate": runner.estimate(*runner.settings_models(), sessions=len(tickers)) if not s.demo else None}
@@ -557,6 +611,9 @@ def cancel_scan(scan_id: str):
 
 # ---------------------------------------------------------------- websockets
 async def _pump(ws: WebSocket, bus: runner.Bus | None):
+    if not _ws_ok(ws):
+        await ws.close(code=1008)
+        return
     await ws.accept()
     if bus is None:
         await ws.send_json({"type": "error", "code": "not_found"})
@@ -604,6 +661,9 @@ def live_catalog():
 async def ws_live(ws: WebSocket):
     """Streams quote updates for the symbols the screen asks for ({"want": [...]}), batched every 250 ms."""
     from . import live
+    if not _ws_ok(ws):
+        await ws.close(code=1008)
+        return
     await ws.accept()
     hub = live.HUB
     hub.start()
@@ -780,6 +840,8 @@ def start_backtest(b: BacktestIn):
     key, _ = llm_key(provider)
     if not key:
         return JSONResponse({"ok": False, "code": "no_key"})
+    if r := _cap_reached():
+        return r
     if PROVIDERS[provider]["env"]:
         import os
         runner.activate_key(provider, key)
@@ -892,11 +954,13 @@ def put_assistant(p: AssistIn):
 
 
 @app.post("/api/assistant/morning/run")
-async def morning_now():
+def morning_now():
     """Run the morning report now (the user pressed the button)."""
     if not assistant.favorites():
         return JSONResponse({"ok": False, "code": "no_favorites"})
-    sid = assistant.run_morning(asyncio.get_running_loop())
+    if r := _cap_reached():
+        return r
+    sid = assistant.run_morning(_loop())
     return {"scan_id": sid} if sid else JSONResponse({"ok": False, "code": "no_key"})
 
 
@@ -944,6 +1008,22 @@ def learning_card():
     return assistant.learning(enrich)
 
 
+@app.get("/api/trust")
+def trust():
+    """The trust dashboard: how the team's calls actually did, by month, rating and model."""
+    from . import extras
+    rows = db.list_sessions(500)
+    _prefetch_prices(rows)
+    return {**assistant.trust([enrich(r) for r in rows if r["mode"] == "real" and r["status"] == "done"]),
+            "paper": extras.paper_view()["totals"]}
+
+
+@app.get("/api/spend")
+def spend():
+    from . import budget
+    return budget.spent()
+
+
 # ---------------------------------------------------------------- reuse, virtual portfolio, price alerts
 @app.get("/api/reusable")
 def sessions_reusable(ticker: str, trade_date: str | None = None):
@@ -952,14 +1032,14 @@ def sessions_reusable(ticker: str, trade_date: str | None = None):
 
 
 @app.post("/api/sessions/{sid}/replay")
-async def session_replay(sid: str):
+def session_replay(sid: str):
     """Show a finished analysis again in the Office (rebuilt from the database, no model calls)."""
     from . import extras
     s = db.get_session(sid)
     if not s or s["status"] != "done":
         raise HTTPException(404, "not_found")
     if sid not in runner.BUSES or not runner.BUSES[sid].closed:
-        runner.BUSES[sid] = runner.Bus(asyncio.get_running_loop())
+        runner.BUSES[sid] = runner.Bus(_loop())
         extras.replay(sid)
     return {"id": sid}
 
@@ -1078,7 +1158,7 @@ class BeginnerStartIn(BeginnerIn):
 
 
 @app.post("/api/beginner/start")
-async def beginner_start(b: BeginnerStartIn):
+def beginner_start(b: BeginnerStartIn):
     from . import beginner
     _beginner_args(b)
     if b.lang not in ("ar", "en"):
@@ -1086,8 +1166,10 @@ async def beginner_start(b: BeginnerStartIn):
     tickers = list(dict.fromkeys(_ticker(t) for t in b.tickers))[:5]
     if not tickers:
         raise HTTPException(400, "watchlist_size")
+    if not b.demo and (r := _cap_reached()):
+        return r
     budget = _budget(b.amount, b.currency)
-    scan_id = runner.start_scan(asyncio.get_running_loop(), "beginner", tickers, None, None, b.lang, b.demo, budget=budget)
+    scan_id = runner.start_scan(_loop(), "beginner", tickers, None, None, b.lang, b.demo, budget=budget)
     beginner.save_profile(scan_id, {"amount": budget["amount"], "currency": b.currency, "market": b.market, "risk": b.risk})
     return {"id": scan_id, "tickers": tickers, "source": None,
             "estimate": runner.estimate(*runner.settings_models(), sessions=len(tickers)) if not b.demo else None}

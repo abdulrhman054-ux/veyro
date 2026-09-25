@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Settings } from "./api";
 import { click, unlockAudio } from "./audio";
 import { usePrefs } from "./prefs";
@@ -13,6 +13,7 @@ import { ProposeButton } from "./exec/OrderTicket";
 import { TradingSettings } from "./exec/TradingSettings";
 import { WorldNews } from "./screens/WorldNews";
 import { LiveBoard } from "./screens/LiveBoard";
+import { GlossaryModal } from "./extras/Glossary";
 import { Welcome } from "./components/Welcome";
 import { AlertsBell, AssistantProvider } from "./assistant/Assistant";
 
@@ -43,6 +44,7 @@ function Shell() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [market, setMarket] = useState<{ open: boolean | null } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [glossary, setGlossary] = useState(false);
   const [pendingStart, setPendingStart] = useState<{ ticker: string; trade_date: string; nonce: number } | null>(null);
   const [pendingScan, setPendingScan] = useState<{ id: string; nonce: number } | null>(null);
   const openMorning = () => { api.get<{ morning_scan: string | null }>("/api/alerts").then((r) => { if (r.morning_scan) setPendingScan({ id: r.morning_scan, nonce: Date.now() }); go("office"); }).catch(() => go("office")); };
@@ -62,6 +64,12 @@ function Shell() {
   const go = (s: Screen) => { click(); unlockAudio(); setScreen(s); window.scrollTo(0, 0); };
   const openReport = useCallback((id: string) => { setReportId(id); setScreen("report"); }, []);
   const onBusy = useCallback((b: boolean) => setBusy(b), []);
+  // After a run ends, refresh settings so this month's spend (budget cap) is current.
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (wasBusy.current && !busy) api.get<Settings>("/api/settings").then(setSettings).catch(() => {});
+    wasBusy.current = busy;
+  }, [busy]);
 
   const mkt = market?.open === true ? ["open", t.marketOpen] : market?.open === false ? ["closed", t.marketClosed] : ["", t.marketUnknown];
 
@@ -83,6 +91,7 @@ function Shell() {
         <div className="tools">
           <ModeBadge />
           <AlertsBell onOpenMorning={openMorning} />
+          <button className="pill btn" onClick={() => { click(); setGlossary(true); }} aria-label={prefs.lang === "ar" ? "قاموس المصطلحات" : "Glossary"} title={prefs.lang === "ar" ? "قاموس المصطلحات" : "Glossary"}>📖</button>
           <span className={`chip mkt ${mkt[0]}`} role="status"><i />{mkt[1]}</span>
           <button className="pill btn" onClick={() => set({ lang: prefs.lang === "ar" ? "en" : "ar" })} aria-label={t.langAria} lang={prefs.lang === "ar" ? "en" : "ar"}>{t.langBtn}</button>
           <button className="pill btn" onClick={() => set({ theme: night ? "day" : "night" })} aria-label={t.themeAria}>{night ? SUN : MOON}</button>
@@ -108,6 +117,7 @@ function Shell() {
         {seen.has("settings") && <div hidden={screen !== "settings"}><SettingsScreen settings={settings} onChange={setSettings} extra={<TradingSettings />} /></div>}
       </main>
       <Welcome />
+      {glossary && <GlossaryModal onClose={() => setGlossary(false)} />}
       {busy && screen !== "office" && (
         <button className="toast btn" style={{ border: 0, cursor: "pointer" }} onClick={() => go("office")}>{t.running} · {t.office}</button>
       )}
