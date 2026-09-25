@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from . import service as S
+from .broker import BrokerError
 
 router = APIRouter(prefix="/api/exec")
 _PORT = os.environ.get("VEYRO_PORT", "8765")
@@ -32,6 +33,9 @@ def wrap(fn, *a, **k):
         return fn(*a, **k)
     except S.ExecError as e:
         return err(e)
+    except BrokerError as e:
+        # The broker (or the Mock's price feed) couldn't answer: an expected, explainable refusal, not a crash.
+        return JSONResponse({"ok": False, "code": getattr(e, "code", None) or "broker", "character": "Tank", "data": {}}, status_code=200)
 
 
 @router.get("/status")

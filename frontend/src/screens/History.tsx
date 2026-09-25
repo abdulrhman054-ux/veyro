@@ -18,13 +18,14 @@ function score(r: SessionRow): "beat" | "lagged" | "neutral" | null {
   return (tone === "buy" ? excess > 0 : excess < 0) ? "beat" : "lagged";
 }
 
-export function HistoryScreen({ onOpen, onResume, settings }: { onOpen: (id: string) => void; onResume?: (ticker: string, date: string) => void; settings?: Settings | null }) {
+export function HistoryScreen({ onOpen, onResume, settings, active = true }: { onOpen: (id: string) => void; onResume?: (ticker: string, date: string) => void; settings?: Settings | null; active?: boolean }) {
   const { t, prefs } = usePrefs();
   const lang = prefs.lang;
   const [rows, setRows] = useState<SessionRow[] | null>(null);
   const [acted, setActed] = useState<Record<string, { submitted: number; filled: number }>>({});
-  useEffect(() => { api.get<{ sessions: SessionRow[] }>("/api/sessions").then((r) => setRows(r.sessions)).catch(() => setRows([])); }, []);
-  useEffect(() => { api.get<Record<string, { submitted: number; filled: number }>>("/api/exec/acted").then(setActed).catch(() => {}); }, []);
+  // Refreshed on every visit (new sessions appear) while the screen keeps its own state between visits.
+  useEffect(() => { if (active) api.get<{ sessions: SessionRow[] }>("/api/sessions").then((r) => setRows(r.sessions)).catch(() => setRows((x) => x ?? [])); }, [active]);
+  useEffect(() => { if (active) api.get<Record<string, { submitted: number; filled: number }>>("/api/exec/acted").then(setActed).catch(() => {}); }, [active]);
   const ed = EXD[lang];
   const excess = (r: SessionRow) => (r.ret != null && r.spy_ret != null ? r.ret - r.spy_ret : null);
   const avg = (xs: (number | null)[]) => { const v = xs.filter((x): x is number => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };

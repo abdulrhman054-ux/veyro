@@ -19,7 +19,7 @@ type Portfolio = {
 type AuditRow = { id: number; ts: string; mode: string; broker: string | null; event: string; symbol: string | null; side: string | null;
   order_type: string | null; qty: number | null; notional: number | null; limit_price: number | null; est_cost: number | null; message: string | null };
 
-export function OrdersScreen({ onOpenSettings }: { onOpenSettings?: () => void }) {
+export function OrdersScreen({ onOpenSettings, active = true }: { onOpenSettings?: () => void; active?: boolean }) {
   const { prefs } = usePrefs();
   const lang = prefs.lang;
   const d = EXD[lang];
@@ -33,7 +33,7 @@ export function OrdersScreen({ onOpenSettings }: { onOpenSettings?: () => void }
     api.get<Portfolio>("/api/exec/portfolio").then(setPf).catch(() => setPf(null));
     api.get<{ rows: AuditRow[] }>("/api/exec/audit").then((r) => setAudit(r.rows)).catch(() => {});
   }, []);
-  useEffect(() => { void load(); const h = setInterval(load, 5000); return () => clearInterval(h); }, [load]);
+  useEffect(() => { if (!active) return; void load(); const h = setInterval(load, 5000); return () => clearInterval(h); }, [load, active]);
 
   const money = (v: number | null | undefined) => fmtUsd(v ?? null, lang) ?? d.unavailable;
 

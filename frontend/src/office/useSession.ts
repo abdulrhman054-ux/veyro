@@ -26,6 +26,9 @@ export type SessionState = {
   rethinking: CharKey[];   // started a new task while still speaking / queued
   assetType: string | null;
   portfolioUsed: boolean;
+  portfolioBroker: string | null;
+  stopping: boolean;          // Stop pressed: waiting for the backend's confirmation
+  thinkingSince: number | null;  // when the current "someone is working" stretch began (for the waiting box)
 };
 
 const ALL: CharKey[] = ["Ollie", "Pip", "Buzz", "Benny", "Bolt", "Bruno", "Tank", "Leo", "Albie"];
@@ -35,6 +38,7 @@ export const initial: SessionState = {
   id: null, ticker: null, mode: null, tradeDate: null, estimate: null, market: null, marketLoaded: false,
   agents: idleAgents(), queue: [], current: null, log: [], verdict: null, verdictShown: false,
   usage: null, ended: false, status: null, error: null, rethinking: [], assetType: null, portfolioUsed: false,
+  portfolioBroker: null, stopping: false, thinkingSince: null,
 };
 
 type Action =
@@ -42,7 +46,8 @@ type Action =
   | { type: "event"; ev: VEvent }
   | { type: "next" }          // current line finished playing
   | { type: "showVerdict" }
-  | { type: "streamClosed" }
+  | { type: "streamClosed"; status?: string }
+  | { type: "stop" }
   | { type: "say"; character: CharKey; text: string };
 
 let lineSeq = 0;
@@ -52,7 +57,13 @@ function reducer(s: SessionState, a: Action): SessionState {
     case "reset":
       return { ...initial, id: a.id, agents: idleAgents() };
     case "streamClosed":
-      return s.ended ? s : { ...s, ended: true, status: s.status ?? "disconnected" };
+      return s.ended ? s : { ...s, ended: true, status: a.status ?? s.status ?? "disconnected",
+        agents: settle(s.agents), stopping: false };
+    case "stop": {
+      // Stop means stop now: drop the lines still waiting to be played and put everyone back at their desk.
+      if (s.ended) return s;
+      return { ...s, stopping: true, queue: [], current: null, rethinking: [], agents: settle(s.agents), thinkingSince: null };
+    }
     case "showVerdict":
       return { ...s, verdictShown: true };
     case "say": {
@@ -81,7 +92,7 @@ function reducer(s: SessionState, a: Action): SessionState {
           const agents = { ...s.agents };
           (ev.on_break ?? []).forEach((c) => { agents[c as CharKey] = "break"; });
           return { ...s, agents, id: ev.id, ticker: ev.ticker, mode: ev.mode, tradeDate: ev.trade_date, estimate: ev.estimate,
-            assetType: ev.asset_type ?? null, portfolioUsed: !!ev.portfolio_used };
+            assetType: ev.asset_type ?? null, portfolioUsed: !!ev.portfolio_used, portfolioBroker: ev.portfolio_broker ?? null };
         }
         case "team": {
           const agents = { ...s.agents };
@@ -91,16 +102,19 @@ function reducer(s: SessionState, a: Action): SessionState {
         case "market":
           return { ...s, market: ev.data, marketLoaded: true };
         case "agent_started": {
+          if (s.stopping) return s;
           const c = ev.character as CharKey;
+          const since = s.thinkingSince ?? Date.now();
           if (s.current?.character === c || s.queue.some((l) => l.character === c))
-            return { ...s, rethinking: [...s.rethinking, c] };
-          return { ...s, agents: { ...s.agents, [c]: "thinking" } };
+            return { ...s, rethinking: [...s.rethinking, c], thinkingSince: since };
+          return { ...s, agents: { ...s.agents, [c]: "thinking" }, thinkingSince: since };
         }
         case "agent_message": {
+          if (s.stopping) return s;
           const line: Line = { id: `l${++lineSeq}`, character: ev.character as CharKey, node: ev.node, text: ev.text, turnId: ev.turn_id,
             texts: ev.texts ?? { [ev.lang as "ar" | "en"]: ev.text }, demo: s.mode === "demo",
             kind: ev.node === "Portfolio Manager" ? "verdict" : "speech" };
-          return enqueue(s, line);
+          return enqueue({ ...s, thinkingSince: null }, line);
         }
         case "agent_done":
           return s;
@@ -111,17 +125,25 @@ function reducer(s: SessionState, a: Action): SessionState {
         case "error": {
           const c = ev.character as CharKey;
           const line: Line = { id: `l${++lineSeq}`, character: c, node: "error", text: ev.text, texts: ev.texts ?? {}, kind: "error", demo: s.mode === "demo" };
-          const agents = { ...s.agents };
-          ALL.forEach((k) => { if (agents[k] === "thinking") agents[k] = "idle"; });
-          return enqueue({ ...s, agents, error: { code: ev.code, character: c, text: ev.text } }, line);
+          if (!ev.character) return s;   // transport-level error with nobody to voice it (handled by the stream)
+          return enqueue({ ...s, agents: settle(s.agents), queue: s.stopping ? [] : s.queue, thinkingSince: null,
+            error: { code: ev.code, character: c, text: ev.text } }, line);
         }
         case "end":
-          return { ...s, ended: true, status: ev.status };
+          return { ...s, ended: true, status: ev.status, stopping: false, thinkingSince: null,
+            agents: ev.status === "done" ? s.agents : settle(s.agents) };
         default:
           return s;
       }
     }
   }
+}
+
+/** Anyone mid-task goes back to idle (coffee-break and finished characters keep their state). */
+function settle(a: Record<CharKey, AgentState>): Record<CharKey, AgentState> {
+  const out = { ...a };
+  ALL.forEach((k) => { if (out[k] === "thinking" || out[k] === "speaking") out[k] = "idle"; });
+  return out;
 }
 
 function enqueue(s: SessionState, line: Line): SessionState {
@@ -141,13 +163,32 @@ export function useSession(sessionId: string | null) {
     closeRef.current?.();
     dispatch({ type: "reset", id: sessionId });
     if (!sessionId) return;
-    closeRef.current = openStream(`/ws/sessions/${sessionId}`, (ev) => dispatch({ type: "event", ev }),
-      () => dispatch({ type: "streamClosed" }));
-    return () => closeRef.current?.();
+    // The server replays the whole session to every new connection, so after a dropped connection we
+    // reconnect and skip the events we already have: nothing is lost and nothing plays twice.
+    let seen = 0, tries = 0, alive = true, ended = false, timer = 0;
+    const connect = () => {
+      let skip = seen;
+      closeRef.current = openStream(`/ws/sessions/${sessionId}`, (ev) => {
+        if (ev.type === "error" && ev.code === "not_found" && !ev.character) {
+          ended = true; dispatch({ type: "streamClosed", status: "lost" }); return;
+        }
+        if (skip > 0) { skip--; return; }
+        seen++; tries = 0;
+        if (ev.type === "end") ended = true;
+        dispatch({ type: "event", ev });
+      }, () => {
+        if (!alive || ended) return;
+        if (tries++ < 20) timer = window.setTimeout(connect, 1500);
+        else dispatch({ type: "streamClosed" });
+      });
+    };
+    connect();
+    return () => { alive = false; clearTimeout(timer); closeRef.current?.(); };
   }, [sessionId]);
 
   const next = useCallback(() => dispatch({ type: "next" }), []);
   const showVerdict = useCallback(() => dispatch({ type: "showVerdict" }), []);
   const say = useCallback((character: CharKey, text: string) => dispatch({ type: "say", character, text }), []);
-  return { state, next, showVerdict, say };
+  const stopNow = useCallback(() => dispatch({ type: "stop" }), []);
+  return { state, next, showVerdict, say, stopNow };
 }

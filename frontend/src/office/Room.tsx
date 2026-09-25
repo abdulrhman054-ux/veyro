@@ -185,8 +185,8 @@ export function RoomScene({ ticker, market, marketLoaded, demo, agents, lang, ch
         <svg width="46" height="26" viewBox="0 0 23 13" shapeRendering="crispEdges"><path d="M0 6h1V5h4V4h4V3h4V2h4V1h4V0h2v1h-1v2h-1v2h-1v2h-1v2h-1v2h-1v2h-1v-1h-1v-1h-1v-1h-1V9h-1v1h-1v1H9V9H8V8H1V7H0z" fill="#FFFFFF" stroke="#9AA7B8" strokeWidth=".3" /></svg>
       </div>
       {order.map((n, i) => <Agent key={n} name={n} state={agents[n]} lang={lang} index={i} mood={mood.mood} />)}
-      {(albie === "thinking" || albie === "speaking") && (
-        <div className={`visitor ${albie}`} aria-label={lang === "ar" ? "ألبي، ناقل الأخبار العالمية" : "Albie, world news courier"} role="img">
+      {(albie === "thinking" || albie === "speaking" || albie === "done") && (
+        <div className={`visitor ${albie === "done" ? "leaving" : albie}`} aria-hidden={albie === "done" || undefined} aria-label={lang === "ar" ? "ألبي، ناقل الأخبار العالمية" : "Albie, world news courier"} role="img">
           <div className="sprite"><AnimatedSprite name="Albie" px={4} /></div>
           <div className="plate" style={{ background: charColor("Albie"), top: 110 }}>{charName("Albie", lang)}</div>
           {albie === "thinking" && <div className="emote pixel" style={{ display: "flex", color: charColor("Albie") }}>✈</div>}

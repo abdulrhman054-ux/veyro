@@ -36,9 +36,10 @@ RATING_ORDER = ["Buy", "Overweight", "Hold", "Underweight", "Sell"]
 def price_for(model: str | None) -> tuple[float, float] | None:
     if not model:
         return None
-    for k, v in PRICING.items():
-        if model == k or model.startswith(k):
-            return v
+    # Longest prefix wins, so "claude-opus-5-5" is never priced as "claude-opus-5".
+    for k in sorted(PRICING, key=len, reverse=True):
+        if model == k or model.startswith(k + "-") or model.startswith(k + "@"):
+            return PRICING[k]
     return None
 
 
@@ -107,12 +108,15 @@ class Bus:
     def publish(self, ev: dict) -> None:
         ev.setdefault("ts", time.time())
         with self.lock:
+            if self.closed:
+                return   # nothing after "end": late voice lines from a stopped session must not reach the UI
             self.events.append(ev)
             subs = list(self.subs)
         for s in subs:
             self.loop.call_soon_threadsafe(s.put_nowait, ev)
         if ev["type"] == "end":
-            self.closed = True
+            with self.lock:
+                self.closed = True
 
     def subscribe(self) -> tuple[asyncio.Queue, list[dict]]:
         q: asyncio.Queue = asyncio.Queue()
@@ -214,12 +218,16 @@ def benchmark_for(ticker: str) -> str:
     return DEFAULT_CONFIG.get("benchmark_ticker") or bm.get("", "SPY")
 
 
-def portfolio_context():
-    """When optional execution is on, give the framework's decision agents the real book."""
+def portfolio_context(budget: dict | None = None):
+    """When optional execution is on, give the framework's decision agents the real book. Otherwise, when the
+    owner entered a budget, the Portfolio Manager is told that much cash is free for this idea."""
     try:
         from .execution import service as ex
         m = ex.mode()
         if m == "off":
+            if budget and budget.get("amount"):
+                from tradingagents.portfolio import PortfolioContext
+                return PortfolioContext(cash=float(budget["amount"]), currency=budget.get("currency") or "USD"), "budget"
             return None, None
         b = ex.broker_for(m)
         acct, pos = b.account(), b.positions()
@@ -264,8 +272,9 @@ def verdict_price(ticker: str, bench: str = "SPY") -> dict:
 class Emitter:
     """Keeps UI events in order while voice lines are generated in parallel."""
 
-    def __init__(self, bus: Bus):
+    def __init__(self, bus: Bus, cancel: threading.Event | None = None):
         self.bus = bus
+        self.cancel = cancel
         self.q: queue.Queue = queue.Queue()
         self.t = threading.Thread(target=self._run, daemon=True)
         self.t.start()
@@ -280,6 +289,9 @@ class Emitter:
                 return
             try:
                 if isinstance(item, Future):
+                    if self.cancel is not None and self.cancel.is_set():
+                        item.cancel()
+                        continue   # stopped: don't wait for (or show) lines still being voiced
                     evs = item.result()
                     for ev in (evs if isinstance(evs, list) else [evs]):
                         self.bus.publish(ev)
@@ -346,22 +358,22 @@ def reasoning_config(provider: str) -> dict:
         return {}
     if provider == "anthropic":
         return {"anthropic_effort": depth}
-    if provider in ("openai", "xai", "deepseek"):
+    if provider == "openai":   # the framework forwards reasoning effort for OpenAI only (not xAI / DeepSeek)
         return {"openai_reasoning_effort": depth}
     if provider == "google":
         return {"google_thinking_level": "high" if depth == "high" else "low"}
     return {}
 
 
-def run_session(sid: str, ticker: str, lang: str, demo: bool, trade_date: str | None = None) -> None:
+def run_session(sid: str, ticker: str, lang: str, demo: bool, trade_date: str | None = None, budget: dict | None = None) -> None:
     bus = BUSES[sid]
-    em = Emitter(bus)
     cancel = CANCEL[sid]
+    em = Emitter(bus, cancel)
     try:
         if demo:
             _run_demo(sid, ticker, lang, em, cancel)
         else:
-            _run_real(sid, ticker, lang, em, cancel, trade_date)
+            _run_real(sid, ticker, lang, em, cancel, trade_date, budget)
     except _Cancelled:
         em.put(error_event("cancelled", lang))
         db.update_session(sid, status="cancelled", finished_at=db.now())
@@ -374,14 +386,58 @@ def run_session(sid: str, ticker: str, lang: str, demo: bool, trade_date: str | 
         em.put({"type": "end", "status": "error"})
     finally:
         em.close()
+        if not bus.closed:   # backstop: whatever happened above, the UI and scans always get an end
+            bus.publish({"type": "end", "status": "error"})
+            s = db.get_session(sid)
+            if s and s.get("status") == "running":
+                db.update_session(sid, status="error", error="incomplete", finished_at=db.now())
 
 
-def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.Event, trade_date_in: str | None = None) -> None:
+# ---------------------------------------------------------------- how the characters hand over to each other
+def turn_context(node: str, said: dict[str, str]) -> str:
+    """Tells the voice layer where this line sits in the conversation, so speakers answer each other in order
+    (the debate is a real back-and-forth) while every fact still comes only from the speaker's own conclusion."""
+    if node == "Bull Researcher":
+        prev = said.get("Bear Researcher")
+        return ("This is a live bull-vs-bear debate. Bruno the bear just argued (for reference only):\n" + prev[:700]
+                + "\nYou may answer Bruno by name in a few words, but take every fact only from your own conclusion.") if prev \
+            else "You open the bull-vs-bear debate after the four analysts have reported."
+    if node == "Bear Researcher":
+        prev = said.get("Bull Researcher")
+        return ("This is a live bull-vs-bear debate. Bolt the bull just argued (for reference only):\n" + prev[:700]
+                + "\nYou may answer Bolt by name in a few words, but take every fact only from your own conclusion.") if prev else ""
+    if node == "Research Manager":
+        return ("Leo now speaks as the Research Manager: he has heard Bolt (bull) and Bruno (bear) and sets the investment plan. "
+                "Say which way the plan leans, exactly as the source states.")
+    if node == "Trader":
+        return "Leo now speaks as the Trader: he turns the investment plan into a concrete trade proposal."
+    return ""
+
+
+def fallback_line(ch: str, lang: str) -> str:
+    c = CHARACTERS[ch]
+    return (f"خلصت تحليلي، بس ما قدرت أصيغ الخلاصة بصوتي الآن. التحليل الكامل محفوظ في التقرير. {c['catch_ar']}" if lang == "ar"
+            else f"My analysis is done, but I couldn't voice the summary just now. The full analysis is in the report. {c['catch_en']}")
+
+
+def fallback_verdict(rating: str, lang: str) -> str:
+    from_ar = {"Buy": "شراء", "Overweight": "زيادة تدريجية", "Hold": "احتفاظ", "Underweight": "تخفيف", "Sell": "بيع"}
+    return (f"يا جماعة، القرار: {from_ar.get(rating, rating)}. التفاصيل الكاملة في التقرير. زئير!" if lang == "ar"
+            else f"Friends, the call is: {rating}. The full reasoning is in the report. roar!")
+
+
+def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.Event, trade_date_in: str | None = None,
+              budget: dict | None = None) -> None:
     from tradingagents.dataflows.config import run_config
     from tradingagents.default_config import DEFAULT_CONFIG
     from tradingagents.graph.trading_graph import TradingAgentsGraph
 
     provider, quick, deep = settings_models()
+    if not quick or not deep:   # e.g. OpenRouter/Groq before a model was picked
+        em.put(error_event("model", lang))
+        db.update_session(sid, status="error", error="no_model", finished_at=db.now())
+        em.put({"type": "end", "status": "error"})
+        return
     key, _src = llm_key(provider)
     if not key:
         em.put(error_event("no_key", lang))
@@ -401,13 +457,13 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
         v = get_secret(dk)
         if v:
             os.environ[env] = v
-    pc, pc_broker = portfolio_context()
+    pc, pc_broker = portfolio_context(budget)
     em.put({"type": "session", "id": sid, "ticker": symbol, "mode": "real", "lang": lang, "trade_date": trade_date,
             "provider": provider, "quick_model": quick, "deep_model": deep,
             "estimate": estimate(provider, quick, deep, team=team, asset_type=asset_type),
             "asset_type": asset_type, "analysts": analysts, "on_break": _on_break(analysts),
             "debate_rounds": team["debate_rounds"], "risk_rounds": team["risk_rounds"], "benchmark": bench,
-            "portfolio_used": pc is not None})
+            "portfolio_used": pc is not None, "portfolio_broker": pc_broker})
     ticker = symbol
     hist = market.history(ticker)
     em.put({"type": "market", "data": hist, "available": hist is not None})
@@ -439,14 +495,25 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
             active.add(ch)
             em.put({"type": "agent_started", "character": ch, "node": node})
 
+    last_said: dict[str, str] = {}   # node -> latest English output, so speakers can answer each other
+
     def speak(ch: str, node: str, text: str, context: str = ""):
         nonlocal seq
         seq += 1
         my_seq = seq
+        context = context or turn_context(node, last_said)
+        last_said[node] = text
 
         def job():
-            line = voice.speak(ch, ticker, text, lang, context)
-            tid = db.add_turn(sid, my_seq, ch, node, text, line if lang == "ar" else None, line if lang == "en" else None)
+            try:
+                line = voice.speak(ch, ticker, text, lang, context)
+                voiced = True
+            except Exception as e:  # noqa: BLE001
+                # The analysis itself is safe; only the short spoken line failed. Keep the full text and move on.
+                log.info("voice line failed for %s: %s", node, type(e).__name__)
+                line, voiced = fallback_line(ch, lang), False
+            tid = db.add_turn(sid, my_seq, ch, node, text, line if voiced and lang == "ar" else None,
+                              line if voiced and lang == "en" else None)
             return [{"type": "agent_message", "character": ch, "node": node, "turn_id": tid, "text": line, "lang": lang,
                      "texts": {lang: line}},
                     {"type": "agent_done", "character": ch, "node": node}]
@@ -463,13 +530,13 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
 
         def job():
             from . import world
-            move = world.stock_move(ticker)
             try:
+                move = world.stock_move(ticker)
                 line = world.link(ticker, lang, provider, quick, move, ctx)
+                heads = world.news("en")["items"][:12]
             except Exception as e:  # noqa: BLE001
                 log.info("albie link failed: %s", type(e).__name__)
                 return [{"type": "agent_done", "character": "Albie", "node": "Global Link"}]
-            heads = world.news("en")["items"][:12]
             detail = ("Global news link (Albie). Headlines considered:\n" + "\n".join(f"- [{h['source']}] {h['title']} ({h['link']})" for h in heads)
                       + (f"\n\nStock move: {move['change'] * 100:+.2f}% on {move['date']}" if move else ""))
             tid = db.add_turn(sid, my_seq, "Albie", "Global Link", detail, line if lang == "ar" else None, line if lang == "en" else None)
@@ -497,7 +564,7 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                       "past_date": past, "resumed": resumed,
                       "debate_rounds": team["debate_rounds"], "risk_rounds": team["risk_rounds"], "benchmark": bench,
                       "past_context": init.get("past_context") or "", "portfolio_context": init.get("portfolio_context") or "",
-                      "portfolio_broker": pc_broker, "reasoning": db.get_setting("reasoning_depth", "default"),
+                      "portfolio_broker": pc_broker, "budget": budget, "reasoning": db.get_setting("reasoning_depth", "default"),
                       "optional_data": {"fred": bool(os.environ.get("FRED_API_KEY")), "alpha_vantage": bool(os.environ.get("ALPHA_VANTAGE_API_KEY")),
                                         "jev": bool(os.environ.get("TYPESAFE_API_KEY"))}}
             db.update_session(sid, config_json=_json.dumps(config))
@@ -519,9 +586,8 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                     if text:
                         started(NODE_CHARACTER[node], node)
                         speak(NODE_CHARACTER[node], node, text)
-            for mode, chunk in ta.graph.stream(ta.checkpoint_input(init), **args):
-                if cancel.is_set():
-                    raise _Cancelled()
+            stream = _cancellable(lambda: ta.graph.stream(ta.checkpoint_input(init), **args), ta.config, cancel)
+            for mode, chunk in stream:
                 if mode == "tasks":
                     node = chunk.get("name")
                     ch = NODE_CHARACTER.get(node)
@@ -552,7 +618,10 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                         speak(ch, node, out)
         ta.clear_checkpoint_on_success(ticker, trade_date, asset_type, pc)
     finally:
-        ta.end_checkpoint()
+        # If Stop left the framework mid-step in its worker thread, that thread closes the checkpoint when it
+        # finishes the step (so the run stays resumable); otherwise close it now.
+        if not _defer_cleanup(locals().get("stream"), ta.end_checkpoint):
+            ta.end_checkpoint()
 
     # The framework's own report tree (markdown files), offered as a download from the Report screen.
     try:
@@ -573,9 +642,22 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
         log.info("memory log skipped: %s", type(e).__name__)
 
     def verdict_job():
+        try:
+            return verdict_events()
+        except Exception as e:  # noqa: BLE001
+            # Never leave the office waiting: any failure here still ends the session.
+            log.error("verdict failed: %s", scrub(repr(e)))
+            db.update_session(sid, status="error", error=scrub(repr(e))[:500], finished_at=db.now())
+            return [error_event(classify(e), lang, repr(e)), {"type": "end", "status": "error"}]
+
+    def verdict_events():
         nonlocal seq
         seq += 1
-        v = voice.verdict(ticker, rating, decision, lang)
+        try:
+            v = voice.verdict(ticker, rating, decision, lang)
+        except Exception as e:  # noqa: BLE001
+            log.info("verdict voice failed: %s", type(e).__name__)
+            v = {"line": fallback_verdict(rating, lang), "reason": "", "conviction": "unstated"}
         tid = db.add_turn(sid, seq, "Leo", "Portfolio Manager", decision,
                           v["line"] if lang == "ar" else None, v["line"] if lang == "en" else None)
         if past:
@@ -609,6 +691,73 @@ class _Cancelled(Exception):
     pass
 
 
+class _CancellableStream:
+    """Runs the framework's graph stream in a worker thread so Stop takes effect at once, even while one
+    agent is in the middle of a long model call. The worker stops at the next step boundary."""
+
+    def __init__(self, make, cfg: dict, cancel: threading.Event):
+        self.q: queue.Queue = queue.Queue()
+        self.cancel = cancel
+        self.lock = threading.Lock()
+        self.cleanup: Callable[[], None] | None = None
+        self.finished = False
+
+        def work():
+            from tradingagents.dataflows.config import run_config
+            try:
+                with run_config(cfg):   # the framework's config lives in a context variable: set it in this thread
+                    for item in make():
+                        self.q.put(("item", item))
+                        if cancel.is_set():
+                            break
+                self.q.put(("done", None))
+            except BaseException as e:  # noqa: BLE001
+                self.q.put(("err", e))
+            finally:
+                with self.lock:
+                    self.finished = True
+                    fn = self.cleanup
+                if fn:
+                    try:
+                        fn()
+                    except Exception:  # noqa: BLE001
+                        pass
+        self.t = threading.Thread(target=work, daemon=True, name="graph-stream")
+        self.t.start()
+
+    def __iter__(self):
+        while True:
+            try:
+                kind, val = self.q.get(timeout=0.25)
+            except queue.Empty:
+                if self.cancel.is_set():
+                    raise _Cancelled() from None
+                continue
+            if self.cancel.is_set():
+                raise _Cancelled()
+            if kind == "item":
+                yield val
+            elif kind == "err":
+                raise val
+            else:
+                return
+
+
+def _cancellable(make, cfg: dict, cancel: threading.Event) -> _CancellableStream:
+    return _CancellableStream(make, cfg, cancel)
+
+
+def _defer_cleanup(stream, fn) -> bool:
+    """Hand fn to a still-running stream worker. True if the worker will call it."""
+    if not isinstance(stream, _CancellableStream):
+        return False
+    with stream.lock:
+        if stream.finished:
+            return False
+        stream.cleanup = fn
+        return True
+
+
 def _on_break(analysts: list[str]) -> list[str]:
     return [ANALYST_CHARACTER[a] for a in ANALYSTS if a not in analysts]
 
@@ -638,6 +787,10 @@ DEMO_ORDER = [("Ollie", "Market Analyst"), ("Buzz", "Sentiment Analyst"), ("Pip"
 
 def _run_demo(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.Event) -> None:
     trade_date = ny_today()
+
+    def nap(sec: float):
+        if cancel.wait(sec):   # Stop interrupts the pause at once
+            raise _Cancelled()
     em.put({"type": "session", "id": sid, "ticker": ticker, "mode": "demo", "lang": lang, "trade_date": trade_date,
             "provider": None, "quick_model": None, "deep_model": None,
             "estimate": {"known": True, "low": 0, "high": 0, "currency": "USD", "sessions": 1}})
@@ -656,7 +809,7 @@ def _run_demo(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
         if cancel.is_set():
             raise _Cancelled()
         em.put({"type": "agent_started", "character": ch, "node": node})
-        time.sleep(3.2)  # paced to roughly match the typewriter, so one character "thinks" at a time
+        nap(3.2)  # paced to roughly match the typewriter, so one character "thinks" at a time
         seq += 1
         ar, en = DEMO_LINES[ch]
         detail = f"[Demo] No analysis was run. {CHARACTERS[ch]['role']} output appears here in a real session."
@@ -664,9 +817,9 @@ def _run_demo(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
         em.put({"type": "agent_message", "character": ch, "node": node, "turn_id": tid, "text": ar if lang == "ar" else en, "lang": lang,
                 "texts": {"ar": ar, "en": en}})
         em.put({"type": "agent_done", "character": ch, "node": node})
-        time.sleep(2.6)
+        nap(2.6)
     em.put({"type": "agent_started", "character": "Albie", "node": "Global Link"})
-    time.sleep(3.0)
+    nap(3.0)
     seq += 1
     a_ar = "[تجريبي] يا جماعة عندي لكم لفّة على العالم! في الجلسة الحقيقية أربط أخبار الصحف العالمية بحركة السهم. ريشتي تطير بالأخبار!"
     a_en = "[Demo] Fresh off the jet stream! In a real session I link world headlines from the big papers to this stock's move. feathers full of news!"
@@ -674,9 +827,9 @@ def _run_demo(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
     em.put({"type": "agent_message", "character": "Albie", "node": "Global Link", "turn_id": tid_a, "text": a_ar if lang == "ar" else a_en,
             "lang": lang, "texts": {"ar": a_ar, "en": a_en}})
     em.put({"type": "agent_done", "character": "Albie", "node": "Global Link"})
-    time.sleep(2.6)
+    nap(2.6)
     em.put({"type": "agent_started", "character": "Leo", "node": "Portfolio Manager"})
-    time.sleep(1.2)
+    nap(1.2)
     line_ar = "[تجريبي] هنا أعلن القرار: شراء أو احتفاظ أو بيع، مع السبب ودرجة القناعة. هذي جلسة تجريبية وما فيها قرار حقيقي. زئير!"
     line_en = "[Demo] This is where I announce the call: buy, hold or sell, with the reason and conviction. This is a demo, so there is no real decision. roar!"
     seq += 1
@@ -702,22 +855,22 @@ def _run_demo(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
 
 # ---------------------------------------------------------------- start / scans
 def start_session(loop: asyncio.AbstractEventLoop, ticker: str, lang: str, demo: bool,
-                  scan_id: str | None = None, wait: bool = False, trade_date: str | None = None) -> str:
+                  scan_id: str | None = None, wait: bool = False, trade_date: str | None = None, budget: dict | None = None) -> str:
     sid = uuid.uuid4().hex[:12]
     provider, quick, deep = settings_models()
     db.create_session(sid, ticker, trade_date or ny_today(), "demo" if demo else "real",
                       None if demo else provider, None if demo else quick, None if demo else deep, lang, scan_id)
     BUSES[sid] = Bus(loop)
     CANCEL[sid] = threading.Event()
-    t = threading.Thread(target=_guarded, args=(sid, ticker, lang, demo, trade_date), daemon=True, name=f"session-{sid}")
+    t = threading.Thread(target=_guarded, args=(sid, ticker, lang, demo, trade_date, budget), daemon=True, name=f"session-{sid}")
     t.start()
     if wait:
         t.join()
     return sid
 
 
-def _guarded(sid, ticker, lang, demo, trade_date=None):
-    run_session(sid, ticker, lang, demo, trade_date)
+def _guarded(sid, ticker, lang, demo, trade_date=None, budget=None):
+    run_session(sid, ticker, lang, demo, trade_date, budget)
 
 
 SCAN_BUSES: dict[str, Bus] = {}
@@ -725,7 +878,7 @@ SCAN_CANCEL: dict[str, threading.Event] = {}
 
 
 def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], screener: str | None,
-               source: list[dict] | None, lang: str, demo: bool) -> str:
+               source: list[dict] | None, lang: str, demo: bool, budget: dict | None = None) -> str:
     """Analyse several tickers one after another, then rank them. Each is a full session."""
     scan_id = uuid.uuid4().hex[:12]
     db.create_scan(scan_id, kind, screener, tickers, source, lang, "demo" if demo else "real")
@@ -738,7 +891,7 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
         for i, t in enumerate(tickers):
             if stop.is_set():
                 break
-            sid = start_session(loop, t, lang, demo, scan_id=scan_id)
+            sid = start_session(loop, t, lang, demo, scan_id=scan_id, budget=budget)
             bus.publish({"type": "scan_session", "index": i, "ticker": t, "session_id": sid})
             while not BUSES[sid].closed:
                 if stop.is_set():

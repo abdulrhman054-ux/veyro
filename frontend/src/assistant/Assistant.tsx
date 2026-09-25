@@ -7,7 +7,7 @@ import { usePrefs } from "../prefs";
 
 export type Quote = { ticker: string; last: number | null; prev: number | null; change: number | null };
 type Alert = { id: number; ts: string; kind: string; ticker: string | null; character: CharKey; text_ar: string; text_en: string; link: string | null; ref: string | null; read: number };
-export type AssistPrefs = { morning_enabled: boolean; morning_time: string; alerts_enabled: boolean; alert_threshold: number; alerts_news: boolean };
+export type AssistPrefs = { morning_enabled: boolean; morning_time: string; alerts_enabled: boolean; alert_threshold: number; alerts_news: boolean; morning_count?: number };
 
 type Ctx = { favorites: string[]; toggleFavorite: (t: string) => void; isFav: (t: string) => boolean; quotes: Quote[]; refreshQuotes: () => void };
 const C = createContext<Ctx | null>(null);
@@ -136,7 +136,12 @@ export function DailyAssistantSettings() {
   const put = (x: Partial<AssistPrefs>) => api.put<AssistPrefs>("/api/assistant", x).then(setP).catch(() => {});
   const runNow = async () => {
     setMsg(null);
-    try { await api.post("/api/assistant/morning/run"); setMsg(ar ? "بدأ التقرير الصباحي! تابعه في المكتب." : "Morning report started! Watch it in the Office."); }
+    try {
+      const r = await api.post<{ scan_id: string }>("/api/assistant/morning/run");
+      setMsg(ar ? "بدأ التقرير الصباحي! ننقلك للمكتب…" : "Morning report started! Taking you to the Office…");
+      // The shell follows the scan in the Office (same path as the alert's "See results").
+      window.dispatchEvent(new CustomEvent("veyro:follow-scan", { detail: r.scan_id }));
+    }
     catch (e) { setMsg(e instanceof ApiError && e.code === "no_favorites" ? (ar ? "أضف أسهم للمفضلة ★ أول." : "Star ★ some favourites first.") : (ar ? "يحتاج مفتاح النموذج." : "Needs a model key.")); }
   };
   return (
@@ -150,7 +155,10 @@ export function DailyAssistantSettings() {
           <input className="field ltr" type="time" style={{ height: 40 }} value={p.morning_time} onChange={(e) => put({ morning_time: e.target.value })} /></label>
         <button className="ghost btn" onClick={runNow}>{ar ? "شغّله الآن" : "Run it now"}</button>
       </div>
-      <p className="muted" style={{ margin: 0, fontSize: 13 }}>{ar ? "كل سهم جلسة كاملة (حتى 5 أسهم)، فالتكلفة تتضاعف. أيام التداول فقط، والتطبيق لازم يكون مفتوح أو في شريط المهام." : "Each stock is a full session (up to 5), so cost multiplies. Trading days only, and the app must be open or in the tray."}</p>
+      <label className="row" style={{ justifyContent: "space-between" }}><span className="label">{ar ? "كم سهم من المفضلة يحلل كل صباح" : "How many favourites to analyse each morning"}</span>
+        <input className="field ltr" type="number" min={1} max={50} step={1} style={{ width: 100, height: 40 }} value={p.morning_count ?? 5}
+          onChange={(e) => { const n = Math.round(Number(e.target.value)); if (n >= 1 && n <= 50) void put({ morning_count: n }); }} /></label>
+      <p className="muted" style={{ margin: 0, fontSize: 13 }}>{ar ? `كل سهم جلسة كاملة، فالتكلفة تتضاعف بعدد الأسهم (حالياً ${Math.min(favorites.length, p.morning_count ?? 5)}). أيام التداول فقط، والتطبيق لازم يكون مفتوح أو في شريط المهام.` : `Each stock is a full session, so cost multiplies by the count (currently ${Math.min(favorites.length, p.morning_count ?? 5)}). Trading days only, and the app must be open or in the tray.`}</p>
       <label className="toggle"><span>{ar ? "تنبيهات الحركة القوية (بيب)" : "Big-move alerts (Pip)"}</span>
         <input type="checkbox" checked={p.alerts_enabled} onChange={(e) => put({ alerts_enabled: e.target.checked })} /></label>
       <label className="row" style={{ justifyContent: "space-between" }}><span className="label">{ar ? "نسبة الحركة للتنبيه (%)" : "Move that triggers an alert (%)"}</span>

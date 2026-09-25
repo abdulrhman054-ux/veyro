@@ -7,8 +7,18 @@ import { CHAR_ORDER, charName, fmtUsd } from "../i18n";
 import { usePrefs, type Intensity, type Theme } from "../prefs";
 
 const MODEL_LABEL: Record<string, string> = {
-  "claude-haiku-4-5": "Claude Haiku 4.5", "claude-sonnet-5": "Claude Sonnet 5", "claude-opus-5-5": "Claude Opus 5.5",
+  "claude-fable-5-1": "Claude Fable 5.1", "claude-fable-5": "Claude Fable 5", "claude-opus-5-5": "Claude Opus 5.5",
+  "claude-opus-5": "Claude Opus 5", "claude-opus-4-8": "Claude Opus 4.8", "claude-opus-4-7": "Claude Opus 4.7",
+  "claude-opus-4-6": "Claude Opus 4.6", "claude-sonnet-5": "Claude Sonnet 5", "claude-sonnet-4-6": "Claude Sonnet 4.6",
+  "claude-haiku-4-5": "Claude Haiku 4.5",
 };
+
+/** Longest-prefix price lookup, same rule as the backend. */
+function priceOf(model: string, pricing: Record<string, [number, number]> | undefined) {
+  if (!pricing) return null;
+  const k = Object.keys(pricing).sort((a, b) => b.length - a.length).find((p) => model === p || model.startsWith(p + "-") || model.startsWith(p + "@"));
+  return k ? pricing[k] : null;
+}
 
 export function SettingsScreen({ settings, onChange, extra }: { settings: Settings | null; onChange: (s: Settings) => void; extra?: ReactNode }) {
   const { t, prefs, set } = usePrefs();
@@ -18,11 +28,25 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
   const [test, setTest] = useState<ConnTest | null>(null);
   const [testing, setTesting] = useState(false);
   const [ws, setWs] = useState("");
+  const [live, setLive] = useState<{ id: string; name: string }[] | null>(null);
+  const [liveState, setLiveState] = useState<"idle" | "loading" | "error">("idle");
+  const [liveFor, setLiveFor] = useState<string | null>(null);
+  const loadLive = async () => {
+    if (!settings) return;
+    setLiveState("loading");
+    try {
+      const r = await api.get<{ models: { id: string; name: string }[] }>(`/api/models/live?provider=${settings.provider}`);
+      setLive(r.models); setLiveFor(settings.provider); setLiveState("idle");
+    } catch { setLiveState("error"); }
+  };
   useEffect(() => { if (msg) { const h = setTimeout(() => setMsg(null), 2200); return () => clearTimeout(h); } }, [msg]);
 
   if (!settings) return <div className="card" aria-busy="true">…</div>;
   const p = settings.providers[settings.provider];
   const k = settings.keys[settings.provider];
+  const liveHere = liveFor === settings.provider ? live : null;
+  const rec = p.recommend;
+  const onRec = !!rec && rec.quick === settings.quick_model && rec.deep === settings.deep_model;
 
   const put = async (body: Partial<{ provider: string; quick_model: string; deep_model: string }>) => {
     try { onChange(await api.put<Settings>("/api/settings", body)); setMsg(t.saved); } catch { setMsg(t.error); }
@@ -73,7 +97,14 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
           <h2 id="s-model" style={{ fontSize: 22 }}>{t.modelAndKey}</h2>
           <div className="label">{t.provider}</div>
           <Seg label={t.provider} value={settings.provider} options={Object.entries(settings.providers).filter(([, v]) => !v.extra).map(([id, v]) => [id, v.label])} onPick={(v) => put({ provider: v })} />
-          {p.extra && <div className="toggle"><span>{lang === "ar" ? "المزوّد الحالي (من الإعدادات المتقدمة)" : "Current provider (from Advanced)"}</span><b>{p.label}</b></div>}
+          <label className="row" style={{ gap: 8 }}>
+            <span className="label">{lang === "ar" ? "أو أي ذكاء اصطناعي آخر يدعمه الإطار" : "Or any other AI the framework supports"}</span>
+            <select className="field" style={{ height: 40, flex: 1, minWidth: 160 }} value={p.extra ? settings.provider : ""}
+              onChange={(ev) => ev.target.value && put({ provider: ev.target.value })}>
+              <option value="">{lang === "ar" ? "اختر…" : "Choose…"}</option>
+              {Object.entries(settings.providers).filter(([, v]) => v.extra).map(([id, v]) => <option key={id} value={id}>{v.label}</option>)}
+            </select>
+          </label>
           {p.needs_key === false ? (
             <p className="toggle" style={{ margin: 0 }}>{lang === "ar" ? "يشتغل على جهازك بدون مفتاح (لازم يكون Ollama مثبّت وشغّال)." : "Runs on your computer with no key (Ollama must be installed and running)."}</p>
           ) : <>
@@ -109,10 +140,32 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
             </div>
           )}
           </>}
-          <ModelPicker id="quick" label={t.quickModel} value={settings.quick_model} options={p.quick} lang={lang}
-            onPick={(m, custom) => putModel({ quick_model: m }, custom)} />
-          <ModelPicker id="deep" label={t.deepModel} value={settings.deep_model} options={p.deep} lang={lang}
-            onPick={(m, custom) => putModel({ deep_model: m }, custom)} />
+          {rec && (rec.quick || rec.deep) && (
+            <div className="stack" style={{ gap: 6, padding: 10, borderRadius: 16, background: onRec ? "var(--buybg)" : "var(--cream)" }}>
+              <b style={{ fontSize: 15 }}>★ {lang === "ar" ? "التوصية" : "Recommended"}: <span className="ltr">{MODEL_LABEL[rec.quick ?? ""] ?? rec.quick ?? "—"} · {MODEL_LABEL[rec.deep ?? ""] ?? rec.deep ?? "—"}</span></b>
+              <span style={{ fontSize: 13, lineHeight: 1.7 }}>{lang === "ar" ? rec.why_ar : rec.why_en}</span>
+              {onRec ? <span style={{ fontSize: 13, fontWeight: 800, color: "var(--buy)" }}>✓ {lang === "ar" ? "مستخدمة الآن" : "In use"}</span>
+                : <button className="ghost btn" style={{ alignSelf: "flex-start" }} disabled={!rec.quick || !rec.deep}
+                    onClick={() => putModel({ quick_model: rec.quick!, deep_model: rec.deep! }, !(p.quick.includes(rec.quick!) && p.deep.includes(rec.deep!)))}>
+                    {lang === "ar" ? "استخدم الموصى به" : "Use the recommended pair"}</button>}
+            </div>
+          )}
+          <ModelPicker id="quick" label={t.quickModel} value={settings.quick_model} options={p.quick} lang={lang} pricing={settings.pricing}
+            live={liveHere} recommended={rec?.quick ?? null} onPick={(m, custom) => putModel({ quick_model: m }, custom)} />
+          <ModelPicker id="deep" label={t.deepModel} value={settings.deep_model} options={p.deep} lang={lang} pricing={settings.pricing}
+            live={liveHere} recommended={rec?.deep ?? null} onPick={(m, custom) => putModel({ deep_model: m }, custom)} />
+          {p.listable && (
+            <div className="row" style={{ gap: 8 }}>
+              <button className="ghost btn" onClick={loadLive} disabled={(p.needs_key !== false && !k?.present) || liveState === "loading"}>
+                {liveState === "loading" ? (lang === "ar" ? "نجيب القائمة…" : "Loading…") : (lang === "ar" ? `حمّل كل نماذج ${p.label} المتاحة لي` : `Load every ${p.label} model I can use`)}
+              </button>
+              {liveHere && <span className="muted" style={{ fontSize: 13 }}>{lang === "ar" ? `${liveHere.length} نموذج متاح` : `${liveHere.length} models available`}</span>}
+              {liveState === "error" && <span className="muted" style={{ fontSize: 13 }}>{lang === "ar" ? "ما قدرنا نجيب القائمة. اختبر الاتصال أولاً." : "Couldn't load the list. Test the connection first."}</span>}
+            </div>
+          )}
+          <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>{lang === "ar"
+            ? "السريع: للمحللين والنقاش وكلام الشخصيات (أغلب الاستهلاك). العميق: لقرار ليو وخطة الاستثمار. تقدر تختار أي نموذج في الخانتين."
+            : "Quick: analysts, debate and the characters' lines (most of the usage). Deep: Leo's decision and investment plan. Any model works in either slot."}</p>
           <div className="toggle"><span>{t.estimate}</span>
             <span className="pixel ltr">{e.known && e.low != null && e.high != null ? `${fmtUsd(e.low, lang)} – ${fmtUsd(e.high, lang)}` : t.unknownPrice}</span></div>
         </section>
@@ -244,7 +297,7 @@ function TeamSettings({ settings, onChange }: { settings: Settings; onChange: (s
               </button>
             ))}
           </div>
-          <p className="muted" style={{ margin: 0, fontSize: 13 }}>{ar ? "أعمق = أدق غالباً لكن أبطأ وأغلى." : "Deeper is often more careful, but slower and pricier."}</p>
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>{ar ? "أعمق = أدق غالباً لكن أبطأ وأغلى. يطبّق على Claude وOpenAI وGemini." : "Deeper is often more careful, but slower and pricier. Applies to Claude, OpenAI and Gemini."}</p>
         </div>
       </div>
       {err && <div className="warnstrip" role="alert">{err}</div>}
@@ -277,20 +330,33 @@ function ConnResult({ test, lang }: { test: ConnTest; lang: "ar" | "en" }) {
 }
 
 /** The framework's model list, plus "another model…" where any model ID can be typed. */
-function ModelPicker({ id, label, value, options, lang, onPick }: {
-  id: string; label: string; value: string; options: string[]; lang: "ar" | "en"; onPick: (m: string, custom: boolean) => void;
+function ModelPicker({ id, label, value, options, lang, onPick, pricing, live, recommended }: {
+  id: string; label: string; value: string | null; options: string[]; lang: "ar" | "en"; onPick: (m: string, custom: boolean) => void;
+  pricing?: Record<string, [number, number]>; live?: { id: string; name: string }[] | null; recommended?: string | null;
 }) {
   const CUSTOM = "__custom__";
-  const known = options.includes(value);
+  value = value ?? "";
+  const extra = (live ?? []).filter((m) => !options.includes(m.id));
+  const known = options.includes(value) || extra.some((m) => m.id === value);
+  const names: Record<string, string> = Object.fromEntries((live ?? []).map((m) => [m.id, m.name]));
+  const optLabel = (m: string) => {
+    const pr = priceOf(m, pricing);
+    const nm = (m === recommended ? "★ " : "") + (MODEL_LABEL[m] ?? names[m] ?? m);
+    return pr ? `${nm} · $${pr[0]}/$${pr[1]}` : nm;
+  };
   const [typing, setTyping] = useState(false);
   const [text, setText] = useState(known ? "" : value);
   return (
     <>
       <label className="label" htmlFor={id}>{label}</label>
       <select id={id} className="field" value={typing ? CUSTOM : value}
-        onChange={(ev) => { if (ev.target.value === CUSTOM) { setTyping(true); } else { setTyping(false); onPick(ev.target.value, false); } }}>
-        {options.map((m) => <option key={m} value={m}>{MODEL_LABEL[m] ?? m}</option>)}
-        {!known && <option value={value}>{(lang === "ar" ? "مخصص: " : "Custom: ") + value}</option>}
+        onChange={(ev) => { const v = ev.target.value; if (v === CUSTOM) { setTyping(true); } else { setTyping(false); onPick(v, !options.includes(v)); } }}>
+        {options.map((m) => <option key={m} value={m}>{optLabel(m)}</option>)}
+        {extra.length > 0 && <optgroup label={lang === "ar" ? "من حسابك" : "From your account"}>
+          {extra.map((m) => <option key={m.id} value={m.id}>{optLabel(m.id)}</option>)}
+        </optgroup>}
+        {!value && <option value="" disabled>{lang === "ar" ? "اختر نموذجاً…" : "Pick a model…"}</option>}
+        {!known && value && <option value={value}>{(lang === "ar" ? "مخصص: " : "Custom: ") + value}</option>}
         <option value={CUSTOM}>{lang === "ar" ? "✎ نموذج آخر (اكتب المعرّف)…" : "✎ Another model (type its ID)…"}</option>
       </select>
       {typing && (

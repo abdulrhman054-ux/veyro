@@ -24,7 +24,7 @@ export function SpeechBox({ line, lang, onDone }: { line: Line; lang: Lang; onDo
   useEffect(() => {
     if (!text) return;
     if (done) {
-      const hold = Math.min(6000, 1600 + text.length * 22);
+      const hold = Math.min(15000, 2000 + text.length * 40);   // time to read it, longer lines stay longer
       const h = window.setTimeout(() => doneRef.current(), line.kind === "error" ? hold + 3000 : hold);
       return () => clearTimeout(h);
     }
@@ -38,14 +38,65 @@ export function SpeechBox({ line, lang, onDone }: { line: Line; lang: Lang; onDo
     return () => clearTimeout(h);
   }, [n, done, text, line.kind, line.character]);
 
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => { const el = box.current; if (el) el.scrollTop = el.scrollHeight; }, [n]);   // long lines: follow the typing
   const advance = () => (done ? onDone() : setN(text.length));
   return (
     <button className={`dlg${line.kind === "error" ? " err" : ""}`} dir={lang === "ar" ? "rtl" : "ltr"} onClick={advance}
       aria-label={`${charName(line.character, lang)}: ${text}`}>
       <span className="tag" style={{ background: charColor(line.character) }}>{charName(line.character, lang)}</span>
-      <span className="dtext" aria-hidden="true" style={{ display: "block" }}>{text ? text.slice(0, n) : "…"}{!done && <span className="caret" />}</span>
+      <span className="dtext scroll" ref={box} aria-hidden="true" style={{ display: "block" }}>{text ? text.slice(0, n) : "…"}{!done && <span className="caret" />}</span>
       {done && <span className="next" aria-hidden="true" />}
     </button>
+  );
+}
+
+const WORKING: Partial<Record<CharKey, { ar: string; en: string }>> = {
+  Ollie: { ar: "يقرأ الشارت والمؤشرات", en: "is reading the chart and indicators" },
+  Buzz: { ar: "يسمع وش يقول الناس", en: "is listening to what people say" },
+  Pip: { ar: "يقرأ أخبار السهم", en: "is reading the stock's news" },
+  Benny: { ar: "يحسب القوائم المالية", en: "is crunching the financial statements" },
+  Bolt: { ar: "يجهّز حجة الصعود", en: "is building the bull case" },
+  Bruno: { ar: "يجهّز حجة الهبوط", en: "is building the bear case" },
+  Tank: { ar: "يراجع المخاطر مع فريقه", en: "is reviewing the risks with his team" },
+  Leo: { ar: "يوزن كلام الفريق", en: "is weighing the whole team" },
+  Albie: { ar: "طاير يجيب أخبار العالم", en: "is flying in with world news" },
+};
+
+/** Between lines: who is working right now, so a long model call never looks like a frozen office. */
+export function WaitBox({ lang, agents, since, stopping, loaded }: { lang: Lang; agents: Record<CharKey, string>; since: number | null; stopping: boolean; loaded: boolean }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const h = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(h); }, []);
+  const busy = (Object.keys(agents) as CharKey[]).filter((c) => agents[c] === "thinking");
+  const secs = since ? Math.max(0, Math.round((now - since) / 1000)) : 0;
+  const text = stopping
+    ? (lang === "ar" ? "نوقف الجلسة… لحظة." : "Stopping the session… one moment.")
+    : !loaded ? (lang === "ar" ? "الفريق يجهّز الطاولة…" : "The team is getting the table ready…")
+    : busy.length ? busy.map((c) => `${charName(c, lang)} ${WORKING[c]?.[lang] ?? (lang === "ar" ? "يشتغل" : "is working")}`).join(lang === "ar" ? "، و" : ", and ") + "…"
+    : (lang === "ar" ? "الفريق يرتّب الخطوة الجاية…" : "The team is lining up the next step…");
+  return (
+    <div className="dlg wait" dir={lang === "ar" ? "rtl" : "ltr"} role="status" aria-live="polite" style={{ cursor: "default" }}>
+      <span className="tag" style={{ background: busy[0] ? charColor(busy[0]) : "#3E9A68" }}>{busy[0] ? charName(busy[0], lang) : (lang === "ar" ? "الفريق" : "The team")}</span>
+      <span className="dtext" style={{ display: "block" }}>{text}<span className="dots3" aria-hidden="true"><i /><i /><i /></span></span>
+      {!stopping && secs >= 20 && <span className="muted" style={{ fontSize: 14 }}>{lang === "ar"
+        ? `صار لهم ${secs} ثانية. التحليل الحقيقي ياخذ دقائق، والكلام يطلع أول ما يخلصون.`
+        : `${secs}s so far. Real analysis takes minutes; each line appears as soon as it's ready.`}</span>}
+    </div>
+  );
+}
+
+/** A session that ended without a verdict (stopped, failed, or the connection was lost). */
+export function EndedBox({ lang, status }: { lang: Lang; status: string | null }) {
+  const text = status === "cancelled"
+    ? (lang === "ar" ? "وقّفنا الجلسة. تقدر تبدأ جلسة جديدة متى ما حبيت، وإذا كانت حقيقية تقدر تكملها من «السجل»." : "Session stopped. Start a new one any time; a real session can be resumed from History.")
+    : status === "lost"
+    ? (lang === "ar" ? "انقطع الاتصال بالجلسة (غالباً أُعيد تشغيل التطبيق). المحفوظ منها تلقاه في «السجل»." : "The connection to this session was lost (the app probably restarted). What was saved is in History.")
+    : (lang === "ar" ? "انتهت الجلسة بدون قرار. التفاصيل في «السجل»، وتقدر تكملها من هناك." : "The session ended without a decision. Details are in History, and you can resume it from there.");
+  return (
+    <div className="dlg" dir={lang === "ar" ? "rtl" : "ltr"} role="status" style={{ cursor: "default" }}>
+      <span className="tag" style={{ background: charColor("Leo") }}>{charName("Leo", lang)}</span>
+      <span className="dtext" style={{ display: "block" }}>{text}</span>
+    </div>
   );
 }
 

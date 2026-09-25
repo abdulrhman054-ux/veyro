@@ -38,11 +38,12 @@ export function openStream(path: string, onEvent: (ev: VEvent) => void, onClose?
 export type Estimate = { known: boolean; low: number | null; high: number | null; currency: string; sessions: number };
 export type KeyInfo = { present: boolean; masked: string | null; source: "app" | "env" | "none" };
 export type Settings = {
-  provider: string; quick_model: string; deep_model: string;
-  providers: Record<string, { label: string; quick: string[]; deep: string[]; extra?: boolean; needs_key?: boolean }>;
+  provider: string; quick_model: string | null; deep_model: string | null;
+  providers: Record<string, { label: string; quick: string[]; deep: string[]; extra?: boolean; needs_key?: boolean; listable?: boolean;
+    recommend?: { quick: string | null; deep: string | null; why_ar: string; why_en: string } | null }>;
   reasoning_depth: string;
   anthropic_workspace_id: string | null;
-  keys: Record<string, KeyInfo>; estimate: Estimate;
+  keys: Record<string, KeyInfo>; estimate: Estimate; pricing?: Record<string, [number, number]>; limits?: { batch: number; screen: number };
   team: { analysts: string[]; debate_rounds: number; risk_rounds: number };
   data_keys: Record<"fred" | "alpha_vantage" | "typesafe", { present: boolean; masked: string | null }>;
 };
@@ -56,7 +57,7 @@ export type Verdict = {
 export type Usage = { models: Record<string, { input: number; output: number; calls: number; cost_usd?: number }>; cost_usd: number | null; pricing_known: boolean };
 export type VEvent =
   | { type: "session"; id: string; ticker: string; mode: "real" | "demo"; lang: string; trade_date: string; estimate: Estimate;
-      on_break?: string[]; asset_type?: string; benchmark?: string; portfolio_used?: boolean; debate_rounds?: number; risk_rounds?: number }
+      on_break?: string[]; asset_type?: string; benchmark?: string; portfolio_used?: boolean; portfolio_broker?: string | null; debate_rounds?: number; risk_rounds?: number }
   | { type: "team"; on_break: string[]; asset_type: string }
   | { type: "market"; data: History | null; available: boolean }
   | { type: "agent_started"; character: string; node: string }

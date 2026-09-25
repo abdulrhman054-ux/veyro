@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import assistant, db, market, runner, world
-from .config import CHARACTERS, PROVIDERS, ROOT, STATIC_DIR
+from .config import CHARACTERS, LIST_BASE, MAX_BATCH, MAX_SCREEN, PRICING, PROVIDERS, RECOMMEND, ROOT, STATIC_DIR
 from .execution import service as exec_service
 from .execution.routes import router as exec_router
 from .anthropic_relay import router as relay_router
@@ -86,8 +86,11 @@ def settings_payload() -> dict:
     return {
         "provider": provider, "quick_model": quick, "deep_model": deep,
         "providers": {p: {"label": v["label"], "quick": v["quick"], "deep": v["deep"], "extra": bool(v.get("extra")),
-                          "needs_key": v["env"] is not None} for p, v in PROVIDERS.items()},
+                          "needs_key": v["env"] is not None, "listable": p in LIST_BASE or p in ("anthropic", "ollama"),
+                          "recommend": RECOMMEND.get(p)} for p, v in PROVIDERS.items()},
         "keys": keys,
+        "pricing": {m: list(v) for m, v in PRICING.items()},
+        "limits": {"batch": MAX_BATCH, "screen": MAX_SCREEN},
         "estimate": runner.estimate(provider, quick, deep),
         "team": runner.team_settings(),
         "reasoning_depth": db.get_setting("reasoning_depth", "default"),
@@ -189,6 +192,9 @@ def test_connection(provider: str | None = None) -> dict:
     from .voice import Voice
     results = {}
     for role, model in (("quick", quick), ("deep", deep)):
+        if not model:
+            results[role] = {"model": "—", "ok": False, "code": "model"}
+            continue
         try:
             Voice(provider, model)._ask("Reply with the single word OK.", "ping")
             results[role] = {"model": model, "ok": True}
@@ -204,6 +210,39 @@ def test_connection(provider: str | None = None) -> dict:
 def keys_test():
     r = test_connection()
     return r if r["ok"] else JSONResponse(r)
+
+
+@app.get("/api/models/live")
+def live_models(provider: str = "anthropic"):
+    """The models the saved key can actually use, straight from the provider, so the owner can pick any of
+    them (not only the ones Veyro ships with). Claude: Anthropic Models API; Ollama: the local model list;
+    OpenAI-compatible providers: their /models endpoint."""
+    if provider not in PROVIDERS:
+        raise HTTPException(400, "unknown_provider")
+    key, _ = llm_key(provider)
+    if not key:
+        return JSONResponse({"ok": False, "code": "no_key"})
+    try:
+        if provider == "anthropic":
+            import anthropic
+            from .anthropic_relay import base_url as relay_url
+            client = anthropic.Anthropic(api_key=key, base_url=relay_url(), max_retries=1, timeout=20)
+            models = [{"id": m.id, "name": m.display_name} for m in client.models.list(limit=100)]
+        elif provider == "ollama":
+            import httpx
+            base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1").rstrip("/").removesuffix("/v1")
+            r = httpx.get(f"{base}/api/tags", timeout=10)
+            r.raise_for_status()
+            models = [{"id": m["name"], "name": m["name"]} for m in r.json().get("models", [])]
+        elif provider in LIST_BASE:
+            import openai
+            client = openai.OpenAI(api_key=key, base_url=LIST_BASE[provider], max_retries=1, timeout=20)
+            models = sorted(({"id": m.id, "name": m.id} for m in client.models.list()), key=lambda m: m["id"])
+        else:
+            return JSONResponse({"ok": False, "code": "not_listable"})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "code": runner.classify(e)})
+    return {"models": models[:500]}
 
 
 @app.delete("/api/keys/{provider}")
@@ -229,17 +268,27 @@ def market_history(ticker: str):
     return {"available": True, **h}
 
 
+@app.get("/api/market/search")
+def market_search(q: str = ""):
+    """Find a ticker by company name (Arabic or English) or symbol."""
+    q = q.strip()
+    if not 1 <= len(q) <= 60:
+        return {"results": []}
+    return {"results": [r for r in market.search(q, 8) if TICKER_RE.match(r["symbol"])]}
+
+
 @app.get("/api/market/screeners")
 def screeners():
     return {"screeners": market.SCREENERS}
 
 
 @app.get("/api/market/screen/{screener}")
-def run_screen(screener: str, count: int = 5):
+def run_screen(screener: str, count: int = 5, budget: float | None = None, currency: str = "USD"):
     if screener not in market.SCREENERS:
         raise HTTPException(400, "unknown_screener")
     try:
-        return {"available": True, "candidates": market.screen(screener, max(1, min(count, 5)))}
+        return {"available": True, "candidates": market.screen(screener, max(1, min(count, MAX_SCREEN)),
+                                                               _max_price(_budget(budget, currency)))}
     except market.MarketDataUnavailable:
         return {"available": False, "candidates": []}
 
@@ -250,6 +299,25 @@ class SessionIn(BaseModel):
     lang: str = "ar"
     demo: bool = False
     trade_date: str | None = None   # YYYY-MM-DD, today or earlier (point-in-time analysis)
+    budget: float | None = None     # money the owner wants to invest; the Portfolio Manager sees it as free cash
+    budget_currency: str = "USD"
+
+
+def _budget(amount: float | None, currency: str) -> dict | None:
+    if amount is None or amount <= 0:
+        return None
+    if currency not in ("USD", "SAR") or amount > 1e10:
+        raise HTTPException(400, "bad_budget")
+    return {"amount": round(float(amount), 2), "currency": currency}
+
+
+def _max_price(b: dict | None) -> float | None:
+    """The budget in USD (screeners list US stocks), so only affordable candidates are suggested."""
+    if not b:
+        return None
+    from .allocation import fx
+    rate = fx(b["currency"], "USD")
+    return b["amount"] * rate if rate else None
 
 
 def _trade_date(d: str | None) -> str | None:
@@ -265,7 +333,8 @@ async def create_session(s: SessionIn):
     if s.lang not in ("ar", "en"):
         raise HTTPException(400, "invalid_lang")
     t = _ticker(s.ticker)
-    sid = runner.start_session(asyncio.get_running_loop(), t, s.lang, s.demo, trade_date=_trade_date(s.trade_date))
+    sid = runner.start_session(asyncio.get_running_loop(), t, s.lang, s.demo, trade_date=_trade_date(s.trade_date),
+                               budget=_budget(s.budget, s.budget_currency))
     return {"id": sid}
 
 
@@ -275,9 +344,22 @@ def cancel(sid: str):
 
 
 @app.get("/api/sessions")
-def sessions():
+def sessions(light: bool = False):
     rows = db.list_sessions()
+    if light:   # ids and status only, no live prices (fast)
+        return {"sessions": [{"id": r["id"], "status": r["status"], "ticker": r["ticker"]} for r in rows]}
+    _prefetch_prices(rows)
     return {"sessions": [enrich(r) for r in rows]}
+
+
+def _prefetch_prices(rows: list[dict]) -> None:
+    """Warm the quote cache for every distinct ticker/benchmark in parallel (was one slow call per row)."""
+    from concurrent.futures import ThreadPoolExecutor
+    syms = {r["ticker"] for r in rows if r.get("status") == "done"}
+    syms |= {((r.get("config") or {}).get("benchmark")) or runner.benchmark_for(r["ticker"]) for r in rows if r.get("status") == "done"}
+    if syms:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(market.last_price, syms))
 
 
 def enrich(r: dict) -> dict:
@@ -385,6 +467,8 @@ class ScanIn(BaseModel):
     count: int = 3
     lang: str = "ar"
     demo: bool = False
+    budget: float | None = None
+    budget_currency: str = "USD"
 
 
 @app.post("/api/scans")
@@ -394,19 +478,20 @@ async def create_scan(s: ScanIn):
     source = None
     if s.kind == "watchlist":
         tickers = list(dict.fromkeys(_ticker(t) for t in s.tickers))
-        if not 1 <= len(tickers) <= 5:
+        if not 1 <= len(tickers) <= MAX_BATCH:
             raise HTTPException(400, "watchlist_size")
     elif s.kind == "screener":
         if s.screener not in market.SCREENERS:
             raise HTTPException(400, "unknown_screener")
         try:
-            source = market.screen(s.screener, max(1, min(s.count, 5)))
+            source = market.screen(s.screener, max(1, min(s.count, MAX_SCREEN)), _max_price(_budget(s.budget, s.budget_currency)))
         except market.MarketDataUnavailable:
             raise HTTPException(502, "screener_unavailable") from None
         tickers = [c["symbol"] for c in source]
     else:
         raise HTTPException(400, "bad_kind")
-    scan_id = runner.start_scan(asyncio.get_running_loop(), s.kind, tickers, s.screener, source, s.lang, s.demo)
+    scan_id = runner.start_scan(asyncio.get_running_loop(), s.kind, tickers, s.screener, source, s.lang, s.demo,
+                                budget=_budget(s.budget, s.budget_currency))
     return {"id": scan_id, "tickers": tickers, "source": source,
             "estimate": runner.estimate(*runner.settings_models(), sessions=len(tickers)) if not s.demo else None}
 
@@ -423,6 +508,27 @@ def scan(scan_id: str):
         raise HTTPException(404, "not_found")
     s["sessions"] = runner.rank(s["sessions"])
     return s
+
+
+@app.get("/api/scans/{scan_id}/allocation")
+def scan_allocation(scan_id: str, budget: float, currency: str = "USD"):
+    """Leo's budget plan across a finished watchlist or scan."""
+    from . import allocation
+    b = _budget(budget, currency)
+    s = db.get_scan(scan_id)
+    if not s or not b:
+        raise HTTPException(404, "not_found")
+    return allocation.plan(s["sessions"], b["amount"], b["currency"])
+
+
+@app.get("/api/sessions/{sid}/allocation")
+def session_allocation(sid: str, budget: float, currency: str = "USD"):
+    from . import allocation
+    b = _budget(budget, currency)
+    s = db.get_session(sid)
+    if not s or not b:
+        raise HTTPException(404, "not_found")
+    return allocation.plan([s], b["amount"], b["currency"])
 
 
 @app.post("/api/scans/{scan_id}/cancel")
@@ -708,6 +814,7 @@ class AssistIn(BaseModel):
     alerts_enabled: bool | None = None
     alert_threshold: float | None = None
     alerts_news: bool | None = None
+    morning_count: int | None = None
     ui_lang: str | None = None
 
 
@@ -770,6 +877,61 @@ def ask_history(sid: str):
 @app.get("/api/learning")
 def learning_card():
     return assistant.learning(enrich)
+
+
+# ---------------------------------------------------------------- beginner mode
+class BeginnerIn(BaseModel):
+    amount: float = Field(gt=0, le=1e9)
+    currency: str = "SAR"
+    market: str = "sa"        # 'sa' | 'us' | 'both'
+    risk: str = "balanced"    # 'cautious' | 'balanced' | 'bold'
+    count: int = 3
+
+
+def _beginner_args(b: BeginnerIn) -> BeginnerIn:
+    if b.currency not in ("USD", "SAR") or b.market not in ("sa", "us", "both") or b.risk not in ("cautious", "balanced", "bold"):
+        raise HTTPException(400, "bad_profile")
+    b.count = max(1, min(5, b.count))
+    return b
+
+
+@app.post("/api/beginner/suggest")
+def beginner_suggest(b: BeginnerIn):
+    """Beginner-friendly companies the owner can afford with this amount (real prices)."""
+    from . import beginner
+    b = _beginner_args(b)
+    return beginner.suggest(b.amount, b.currency, b.market, b.risk, b.count)
+
+
+class BeginnerStartIn(BeginnerIn):
+    tickers: list[str]
+    lang: str = "ar"
+    demo: bool = False
+
+
+@app.post("/api/beginner/start")
+async def beginner_start(b: BeginnerStartIn):
+    from . import beginner
+    _beginner_args(b)
+    if b.lang not in ("ar", "en"):
+        raise HTTPException(400, "invalid_lang")
+    tickers = list(dict.fromkeys(_ticker(t) for t in b.tickers))[:5]
+    if not tickers:
+        raise HTTPException(400, "watchlist_size")
+    budget = _budget(b.amount, b.currency)
+    scan_id = runner.start_scan(asyncio.get_running_loop(), "beginner", tickers, None, None, b.lang, b.demo, budget=budget)
+    beginner.save_profile(scan_id, {"amount": budget["amount"], "currency": b.currency, "market": b.market, "risk": b.risk})
+    return {"id": scan_id, "tickers": tickers, "source": None,
+            "estimate": runner.estimate(*runner.settings_models(), sessions=len(tickers)) if not b.demo else None}
+
+
+@app.get("/api/beginner/{scan_id}/guide")
+def beginner_guide(scan_id: str, lang: str = "ar"):
+    from . import beginner
+    if lang not in ("ar", "en"):
+        raise HTTPException(400, "invalid_lang")
+    g = beginner.guide(scan_id, lang)
+    return JSONResponse(g) if g.get("ok") is False else g
 
 
 # ---------------------------------------------------------------- about

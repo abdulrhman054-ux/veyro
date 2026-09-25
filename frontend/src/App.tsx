@@ -34,6 +34,10 @@ export default function App() {
 function Shell() {
   const { t, prefs, set, night } = usePrefs();
   const [screen, setScreen] = useState<Screen>("office");
+  // Every screen stays mounted after its first visit, so what you typed, searched or opened is still
+  // there when you come back (screens refresh their data when shown again).
+  const [seen, setSeen] = useState<Set<Screen>>(() => new Set<Screen>(["office"]));
+  useEffect(() => { setSeen((v) => (v.has(screen) ? v : new Set(v).add(screen))); }, [screen]);
   const [reportId, setReportId] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [market, setMarket] = useState<{ open: boolean | null } | null>(null);
@@ -43,12 +47,18 @@ function Shell() {
   const openMorning = () => { api.get<{ morning_scan: string | null }>("/api/alerts").then((r) => { if (r.morning_scan) setPendingScan({ id: r.morning_scan, nonce: Date.now() }); go("office"); }).catch(() => go("office")); };
 
   useEffect(() => { api.get<Settings>("/api/settings").then(setSettings).catch(() => {}); }, []);
+  // "Run it now" in Settings (and other places) ask the shell to follow a scan in the Office.
+  useEffect(() => {
+    const f = (e: Event) => { const id = (e as CustomEvent<string>).detail; if (id) { setPendingScan({ id, nonce: Date.now() }); setScreen("office"); } };
+    window.addEventListener("veyro:follow-scan", f);
+    return () => window.removeEventListener("veyro:follow-scan", f);
+  }, []);
   useEffect(() => {
     const load = () => api.get<{ open: boolean | null }>("/api/market/status").then(setMarket).catch(() => setMarket({ open: null }));
     load(); const h = setInterval(load, 60_000); return () => clearInterval(h);
   }, []);
 
-  const go = (s: Screen) => { click(); unlockAudio(); setScreen(s); };
+  const go = (s: Screen) => { click(); unlockAudio(); setScreen(s); window.scrollTo(0, 0); };
   const openReport = useCallback((id: string) => { setReportId(id); setScreen("report"); }, []);
   const onBusy = useCallback((b: boolean) => setBusy(b), []);
 
@@ -86,12 +96,12 @@ function Shell() {
           <Office settings={settings} onOpenReport={openReport} onBusy={onBusy} marketOpen={market?.open ?? null} pendingStart={pendingStart} pendingScan={pendingScan}
             renderVerdictExtra={(sid, tk, rating, demo) => <ProposeButton sessionId={sid} ticker={tk} rating={rating} demo={demo} />} />
         </div>
-        {screen === "report" && <Report sessionId={reportId} />}
-        {screen === "history" && <HistoryScreen onOpen={openReport} settings={settings}
-          onResume={(ticker, trade_date) => { setPendingStart({ ticker, trade_date, nonce: Date.now() }); go("office"); }} />}
-        {screen === "world" && <WorldNews />}
-        {screen === "orders" && <OrdersScreen onOpenSettings={() => go("settings")} />}
-        {screen === "settings" && <SettingsScreen settings={settings} onChange={setSettings} extra={<TradingSettings />} />}
+        {seen.has("report") && <div hidden={screen !== "report"}><Report sessionId={reportId} active={screen === "report"} /></div>}
+        {seen.has("history") && <div hidden={screen !== "history"}><HistoryScreen onOpen={openReport} settings={settings} active={screen === "history"}
+          onResume={(ticker, trade_date) => { setPendingStart({ ticker, trade_date, nonce: Date.now() }); go("office"); }} /></div>}
+        {seen.has("world") && <div hidden={screen !== "world"}><WorldNews /></div>}
+        {seen.has("orders") && <div hidden={screen !== "orders"}><OrdersScreen onOpenSettings={() => go("settings")} active={screen === "orders"} /></div>}
+        {seen.has("settings") && <div hidden={screen !== "settings"}><SettingsScreen settings={settings} onChange={setSettings} extra={<TradingSettings />} /></div>}
       </main>
       <Welcome />
       {busy && screen !== "office" && (

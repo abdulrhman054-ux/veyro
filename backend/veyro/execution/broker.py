@@ -178,17 +178,21 @@ class MockBroker:
         for o in st["orders"]:
             if o["status"] not in ("new", "accepted"):
                 continue
-            px = self._px(o["symbol"])
+            try:
+                px = self._px(o["symbol"])
+            except BrokerError:
+                continue   # no quote for this symbol right now: leave the order open, don't break the whole book
             if o["type"] == "limit" and not ((o["side"] == "buy" and px <= o["limit_price"]) or (o["side"] == "sell" and px >= o["limit_price"])):
                 continue
             fill_px = px if o["type"] == "market" else o["limit_price"]
             qty = o["qty"] if o["qty"] else round(o["notional"] / fill_px, 6)
-            pos = st["positions"].setdefault(o["symbol"], {"qty": 0.0, "avg": 0.0})
+            pos = st["positions"].get(o["symbol"], {"qty": 0.0, "avg": 0.0})
             if o["side"] == "buy":
                 cost = qty * fill_px
                 if cost > st["cash"] + 1e-6:
                     o["status"] = "rejected"
                     continue
+                st["positions"][o["symbol"]] = pos   # only a real fill creates a position
                 pos["avg"] = (pos["avg"] * pos["qty"] + cost) / (pos["qty"] + qty)
                 pos["qty"] += qty
                 st["cash"] -= cost

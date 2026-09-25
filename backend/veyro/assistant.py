@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 import yfinance as yf
 
 from . import db, market, runner
+from .config import MAX_BATCH
 
 log = logging.getLogger("veyro.assistant")
 NY = ZoneInfo("America/New_York")
@@ -34,7 +35,7 @@ CREATE TABLE IF NOT EXISTS qa (
 """
 
 DEFAULTS = {"morning_enabled": False, "morning_time": "08:00", "alerts_enabled": True, "alert_threshold": 3.0,
-            "alerts_news": True, "ui_lang": "ar"}
+            "alerts_news": True, "morning_count": 5, "ui_lang": "ar"}
 
 
 def init() -> None:
@@ -54,6 +55,8 @@ def set_prefs(p: dict) -> dict:
             raise ValueError("bad_time")
         if k == "alert_threshold":
             v = max(1.0, min(20.0, float(v)))
+        if k == "morning_count":
+            v = max(1, min(MAX_BATCH, int(v)))
         if k == "ui_lang" and v not in ("ar", "en"):
             continue
         db.set_setting(f"assist:{k}", v)
@@ -196,7 +199,7 @@ def run_morning(loop, lang: str | None = None) -> str | None:
         db.set_setting("assist:morning_last", datetime.now().strftime("%Y-%m-%d"))
         return None
     lang = lang or prefs()["ui_lang"]
-    tickers = favorites()[:5]
+    tickers = favorites()[:max(1, min(MAX_BATCH, int(prefs()["morning_count"] or 5)))]
     scan_id = runner.start_scan(loop, "watchlist", tickers, None, None, lang, False)
     db.set_setting("assist:morning_last", datetime.now().strftime("%Y-%m-%d"))
     db.set_setting("assist:morning_scan", scan_id)

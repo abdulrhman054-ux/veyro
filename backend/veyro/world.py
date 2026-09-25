@@ -72,8 +72,14 @@ def _cached(key: str, ttl: float, fn):
         if hit and time.time() - hit[0] < ttl:
             return hit[1]
     val = fn()
+    lists = [v for v in val.values() if isinstance(v, list)] if isinstance(val, dict) else []
+    empty = not val or (lists and not any(lists))
     with _lock:
-        _cache[key] = (time.time(), val)
+        if len(_cache) > 400:   # searches are open-ended: keep the cache bounded
+            for k in sorted(_cache, key=lambda k: _cache[k][0])[:200]:
+                _cache.pop(k, None)
+        # A failed or empty fetch is retried after a minute instead of being served for the full ttl.
+        _cache[key] = (time.time() - max(0.0, ttl - 60) if empty else time.time(), val)
     return val
 
 
