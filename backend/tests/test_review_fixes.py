@@ -240,3 +240,20 @@ def test_closing_a_paper_position_without_a_price_is_refused(monkeypatch):
     with pytest.raises(ValueError):
         extras.paper_close(pid)
     assert db.q1("SELECT closed_at FROM paper WHERE id=?", (pid,))["closed_at"] is None
+
+
+# ---------------------------------------------------------------- morning report follows the favourites' own markets
+def test_morning_report_runs_on_tadawul_sunday_not_friday(monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from veyro import assistant
+    monkeypatch.setattr(assistant, "prefs", lambda: {"morning_enabled": True, "morning_time": "08:00"})
+    monkeypatch.setattr(assistant, "favorites", lambda: ["2222.SR"])
+    db.set_setting("assist:morning_last", None)
+    riy = ZoneInfo("Asia/Riyadh")
+    sunday = datetime(2026, 9, 27, 9, 0, tzinfo=riy)    # Tadawul open day; still Sunday in New York
+    friday = datetime(2026, 9, 25, 9, 0, tzinfo=riy)    # Tadawul closed; a New York weekday
+    assert assistant.morning_due(sunday)
+    assert not assistant.morning_due(friday)
+    monkeypatch.setattr(assistant, "favorites", lambda: ["AAPL"])
+    assert not assistant.morning_due(sunday.astimezone(ZoneInfo("America/New_York")))

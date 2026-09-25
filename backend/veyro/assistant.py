@@ -182,12 +182,22 @@ def morning_due(now_local: datetime | None = None) -> bool:
     if not p["morning_enabled"] or not favorites():
         return False
     now_local = now_local or datetime.now()
-    if datetime.now(NY).weekday() >= 5:
-        return False  # weekends: markets closed, nothing new to analyse
+    if not _any_market_trades_today(favorites(), now_local):
+        return False  # none of the favourites' markets trades today (Tadawul: Sun-Thu; US: Mon-Fri)
     hh, mm = map(int, p["morning_time"].split(":"))
     if (now_local.hour, now_local.minute) < (hh, mm):
         return False
     return db.get_setting("assist:morning_last") != now_local.strftime("%Y-%m-%d")
+
+
+def _any_market_trades_today(tickers: list[str], now: datetime) -> bool:
+    """Regular trading weekdays of each favourite's own market, in that market's time zone (holidays not included)."""
+    from .beginner import MARKETS
+    for t in tickers:
+        m = MARKETS["sa" if t.upper().endswith(".SR") else "us"]
+        if now.astimezone(ZoneInfo(m["tz"])).weekday() in m["days"]:
+            return True
+    return False
 
 
 def run_morning(loop, lang: str | None = None) -> str | None:
