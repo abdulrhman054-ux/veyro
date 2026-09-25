@@ -49,6 +49,19 @@ with sync_playwright() as p:
         page.goto(BASE); page.wait_for_timeout(1500)
         L = lang.upper()
 
+        # --- the office layout: no character stands over another's name or role
+        hidden = page.evaluate("""(() => {
+          const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+          const ags = [...document.querySelectorAll('.room .agent:not(.offstage)')], out = [];
+          for (const a of ags) for (const lab of a.querySelectorAll('.plate, .rl')) {
+            const r = lab.getBoundingClientRect();
+            for (const b of ags) if (b !== a && hit(r, b.querySelector('.sprite').getBoundingClientRect()))
+              out.push(a.className.match(/c-(\\w+)/)[1] + ' under ' + b.className.match(/c-(\\w+)/)[1]);
+          }
+          return out; })()""")
+        check(f"{L}: no character covers another's name or role", not hidden, "; ".join(hidden))
+        page.screenshot(path=OUT + f"fun_office_{lang}.png", clip={"x": 0, "y": 0, "width": 1440, "height": 950})
+
         # --- tap a character once: a joke; five times quickly: they've had enough
         bolt = page.locator(".agent.c-Bolt button.hit")
         bolt.click(); page.wait_for_timeout(200)
@@ -107,6 +120,14 @@ with sync_playwright() as p:
             check("EN: a risk line that isn't a clear warning gets no cameo", not cameo[0])
             page.wait_for_timeout(1200)
             check("EN: a SELL verdict -> Bruno says 'Kid, don't buy this!'", warn_quip(page).count() == 1 and "SELL" in page.locator(".verdict-box").inner_text().upper())
+            over = page.evaluate("""(() => {
+              const q = document.querySelector('.agent.c-Bruno [data-quip=warn]').getBoundingClientRect(), st = document.querySelector('.stage').getBoundingClientRect();
+              const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+              const out = [...document.querySelectorAll('.room .agent:not(.offstage):not(.c-Bruno)')].filter(a => [...a.querySelectorAll('.plate, .sprite')].some(e => hit(q, e.getBoundingClientRect())))
+                .map(a => a.className.match(/c-(\\w+)/)[1]);
+              if (q.right > st.right + 1 || q.left < st.left - 1) out.push('off the stage');
+              return out; })()""")
+            check("EN: Bruno's line covers nobody's name or face and stays on the stage", not over, "; ".join(over))
             page.screenshot(path=OUT + "fun_dont_buy_sell_en.png", clip={"x": 0, "y": 0, "width": 1440, "height": 950})
         ctx.close()
 

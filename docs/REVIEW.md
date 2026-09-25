@@ -321,3 +321,57 @@ Totals: pytest **42 → 138**, browser checks **31 → 91**, 0 failures in the l
 **Stop is immediate** (`5f629c4`). Measured in the browser, 0.08–0.30 s in every state: right after Start, mid-run in single, watchlist and beginner modes, and by Esc. Right after Start used to take 7.84 s. There were two causes:
 - nothing checked for Stop during start-up;
 - the Start button waited for Leo's "stopped" line to finish.
+
+
+## Round 4 (owner: «قم بااتمام الباقي… وتأكد من فحص المشاكل», plus the easter eggs)
+
+Two independent reviews of everything changed on this branch (backend and frontend, read-only), then every finding was checked. The fixes below are **CONFIRMED**: each has a test that failed on the code before the fix and passes after it. The exceptions are marked.
+
+**Backend** (`backend/tests/test_round4_backend.py`, 15 tests):
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | A run cut off by closing the app (or the parent watchdog) counted **$0** against the monthly cap after the next start | Usage is written to the database after every model reply; running sessions reserve the rest of their estimate |
+| 2 | Model calls that finished after Stop never reached the database | Same write-through: the late reply updates the recorded cost |
+| 3 | The start check didn't count the run about to start ($2 cap, $1.66 reserved → a second start was allowed) | Refused when spent + reserved + this run's high estimate would pass the cap |
+| 4 | Splits and bonus shares: a Buy before a 4-for-1 split scored as a 74% loss; a paper position showed −74.75% | The track record and the virtual portfolio multiply by the split factor since the call/purchase |
+| 5 | The lead over ^TASI.SR (a price index) counted the stock's dividends: flat prices + 3 dividends = "+4.9%" | Against a price index the lead uses price only; the total return still includes dividends and the UI says so |
+| 6 | Saudi cooperative (takaful) insurers came out "not compliant" | "Unknown: its own Sharia board decides" |
+| 7 | A 5-session horizon ending today was scored with the day before's close | It waits for that day's close |
+| 8 | US early-close days (13:00) showed "open" until 16:00 | The calendar's own hours for that day |
+| 9 | With fees entered for one market only, a mixed plan dropped the "fees not entered" note | The note names the market without fees |
+| 10 | A scan that joined someone else's run of the same stock left it out of its results and plan, and stopping the scan cancelled it | Listed as the scan's result; stopping the scan only stops following it |
+| 11 | A backtest on a model with no known price was recorded as $0 | Counted as unpriced |
+| 12 | The owner's price for a model didn't match the dated name providers reply with | Same prefix rule as the built-in table |
+| 13 | BTCUSD and BTC-USD got separate run locks for the same framework checkpoint | One lock per instrument |
+
+**Frontend** (`tools/e2e/round5.py`, 9 browser checks; 6 of the 7 failed before the fix):
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | Selling a paper position with no current price did nothing | It says the position stays open and why |
+| 2 | Pressing Save on an untouched custom model price deleted it | Untouched fields keep the saved price (INFERRED; no browser check, fixed by reading) |
+| 3 | Fee fields rejected Arabic digits (٠٫١٥٥) | Accepted |
+| 4 | Report section jumps landed under the sticky header and menu (−150 px at 1100 px wide) | Offset by the header and the menu's real height |
+| 5 | The cost estimate ignored economy mode ($3.36–$9.96 for 6 stocks while only the best 2 were analysed) | Recomputed every render: $1.12–$3.32 |
+| 6 | Index fund: "buys 0 units ($0)" | "isn't enough for one unit"; singular/plural in both languages |
+| 7 | Phone: the dialogue box grew sideways letter by letter (123 px → full width) | Full width from the first letter |
+| 8 | Live → Analyse returned to the Office's old scroll spot | **Not reproduced**: the search box's focus already scrolls to the top. A safeguard was kept |
+| 9 | Hidden (non-compliant) scan candidates still counted in the estimate; a scan stopped before its first session still jumped into it; the US clock went grey when Yahoo was down; a past-date verdict said "market closed"; a Sharia badge could stay on "checking"; late answers could overwrite a newer choice (beginner picks, screener preview) | Fixed by reading both sides (INFERRED; no browser check) |
+| 10 | Desktop: the error screen could open in the hidden main window while the splash spun forever; a timeout's exit replaced the real cause; taskkill could hit a PID Windows had reused | Error shown in the visible window; one error screen; no taskkill after the process has exited. **UNVERIFIED**: Electron on Windows can't run here |
+
+**Owner's layout report:** Bolt's horns covered Buzz's role label and Bruno's head covered Leo's. A check of every name and role label against every other character's sprite found 5 overlaps in the old layout (Ollie, Buzz, Pip, Benny and Leo each had a label covered). The back row now sits 20 px lower and labels are drawn above characters: 0 overlaps in Arabic and English.
+
+**Easter eggs** (DECISIONS 125; `tools/e2e/fun.py`, 26 checks):
+- jokes when you tap a character, and a special line after five taps;
+- idle chatter;
+- party mode (Konami code, or five taps on the wall clock);
+- Bruno walks into the risk room and says **«ورع، لا تشتري هذا!»** when the risk team clearly warns, and again at a Sell call.
+- The tests also check the cases where Bruno must stay quiet: never at a Buy or Hold call, and never for a risk line that isn't a clear warning.
+
+**Deliberately not fixed** (low impact, larger change; INFERRED):
+- a scan can fail if an earlier stopped run of the same stock takes more than 2 minutes to finish its last step;
+- a very narrow Stop-versus-verdict race;
+- a closed position's USD value uses today's exchange rate (tiny for SAR, which is pegged);
+- a resumed run pays again to voice lines it already had;
+- a joined run keeps the language of whoever started it.

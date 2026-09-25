@@ -76,7 +76,15 @@ function ReportBody({ s, missing }: { s: SessionFull | null; missing: boolean })
   const known = new Set(PHASES.flatMap((p) => p.nodes));
   const phases = [...PHASES, { id: "other", nodes: [...new Set(s.turns.map((x) => x.node).filter((n) => !known.has(n)))], ar: "أخرى", en: "Other", subAr: "", subEn: "" }]
     .map((p) => ({ ...p, turns: s.turns.filter((x) => p.nodes.includes(x.node)) })).filter((p) => p.turns.length);
-  const jump = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  // Land just below the sticky header and this section menu, whatever height they wrap to.
+  const jump = (id: string) => {
+    const el = document.getElementById(id), nav = document.querySelector("main > div:not([hidden]) .report-nav");
+    if (!el) return;
+    // where the menu sits once stuck: under the sticky header (--topbar-h), plus its own height
+    const below = nav instanceof HTMLElement && getComputedStyle(nav).position === "sticky"
+      ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--topbar-h")) || 0) + nav.offsetHeight : 0;
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - below - 12, behavior: "smooth" });
+  };
 
   return (
     <div className="stack" style={{ gap: 18 }}>

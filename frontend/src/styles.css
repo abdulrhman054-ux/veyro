@@ -776,7 +776,7 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
 .disco .beam { position: absolute; left: 500px; top: 30px; width: 900px; height: 60px; transform-origin: 0 50%; opacity: .22; mix-blend-mode: screen; animation: beam 2.4s steps(12) infinite; }
 .disco .b0 { background: #FF5A7A; animation-delay: 0s } .disco .b1 { background: #FFD23F; animation-delay: -.4s } .disco .b2 { background: #3EC1D3; animation-delay: -.8s }
 .disco .b3 { background: #8B5CF6; animation-delay: -1.2s } .disco .b4 { background: #3CB371; animation-delay: -1.6s } .disco .b5 { background: #FF8C42; animation-delay: -2s }
-.party-banner { top: 110px; background: #FFD23F; box-shadow: 0 5px 0 #C99A1A; animation: banner 9s steps(20) both; }
+.party-banner { top: 8px; background: #FFD23F; box-shadow: 0 5px 0 #C99A1A; animation: banner 9s steps(20) both; }
 @keyframes ballDrop { from { top: -60px } to { top: 30px } }
 @keyframes beam { 0% { transform: rotate(10deg) } 50% { transform: rotate(170deg) } 100% { transform: rotate(10deg) } }
 :root[data-intensity="off"] .disco .beam, :root[data-intensity="off"] .disco .ball { animation: none; }
@@ -785,3 +785,9 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
 
 /* Section jumps land below the sticky header (Settings cards, fee block). */
 [id^="s-"], #fees-h { scroll-margin-top: calc(var(--topbar-h, 0px) + 24px); }
+
+/* Names and roles stay readable above any character standing behind them. */
+.agent .plate, .agent .rl { z-index: 3; }
+/* At the boardroom table the space above Bruno holds Benny's name: his line goes to his side instead. */
+.room.scene-decision .agent.c-Bruno .quip { top: 6px; left: 136px; transform: none; white-space: normal; width: 150px; text-align: center; animation: none; }
+.room.scene-decision .agent.c-Bruno .quip::after { bottom: auto; top: 22px; left: -9px; margin: 0; border: 6px solid transparent; border-right-color: #D9573F; border-left: 0; }

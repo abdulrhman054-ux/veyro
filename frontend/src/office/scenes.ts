@@ -10,7 +10,8 @@ type Pos = [number, number] | null;
 
 export const OFFICE: Record<Cast, [number, number]> = {
   Ollie: [825, 160], Buzz: [635, 160], Leo: [425, 160], Pip: [215, 160], Benny: [25, 160],
-  Bolt: [720, 342], Bruno: [425, 342], Tank: [130, 342],
+  // The back row sits low enough that its heads (Bolt's horns, Bruno's ears) never cover the front row's names.
+  Bolt: [720, 362], Bruno: [425, 362], Tank: [130, 362],
 };
 
 export const BLOCKING: Record<SceneId, Record<Cast, Pos>> = {
