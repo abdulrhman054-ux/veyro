@@ -269,17 +269,52 @@ def test_beginner_guide_covers_settlement_limits_horizon_and_index_funds():
 
 
 # ---------------------------------------------------------------- trust dashboard: don't score calls younger than the holding period
-def test_trust_does_not_score_calls_minutes_old():
+def _call(tk, rating, made, p0=100.0, b0=100.0, bench="SPY"):
+    return {"ticker": tk, "rating": rating, "created_at": made + "T12:00:00+00:00", "finished_at": made + "T12:10:00+00:00",
+            "trade_date": made, "price_at_verdict": p0, "spy_at_verdict": b0, "benchmark": bench}
+
+
+def test_trust_does_not_score_calls_minutes_old(monkeypatch):
     # Seen in the UI: three Buy calls a few minutes old, stock and index both flat -> "0% hit rate".
-    from datetime import datetime, timedelta, timezone
+    from datetime import date
     from veyro import assistant
-    now = datetime.now(timezone.utc)
-    fresh = {"rating": "Buy", "ret": 0.0, "spy_ret": 0.0, "created_at": now.isoformat(), "finished_at": now.isoformat()}
-    old = {"rating": "Buy", "ret": 0.05, "spy_ret": 0.01, "created_at": (now - timedelta(days=20)).isoformat(),
-           "finished_at": (now - timedelta(days=20)).isoformat()}
-    t = assistant.trust([fresh, fresh, fresh, old])
-    assert t["overall"]["n"] == 1 and t["overall"]["hits"] == 1
-    assert t["pending"] == 3 and t["min_age_days"] >= 7
+    monkeypatch.setattr(market, "close_on_or_before", lambda t, d: 110.0 if t == "AAPL" else 101.0)
+    today = date(2026, 9, 25)
+    t = assistant.trust([_call("MSFT", "Buy", "2026-09-25"), _call("NVDA", "Buy", "2026-09-25"), _call("AAPL", "Buy", "2026-08-01")], today)
+    assert t["overall"]["n"] == 1 and t["overall"]["hits"] == 1 and t["pending"] == 2
+
+
+def test_trust_scores_at_a_fixed_horizon_not_until_now(monkeypatch):
+    from datetime import date
+    from veyro import assistant
+    asked = []
+
+    def close(t, d):
+        asked.append((t, d))
+        return {"AAPL": 105.0, "SPY": 101.0}[t]
+    monkeypatch.setattr(market, "close_on_or_before", close)
+    t = assistant.trust([_call("AAPL", "Buy", "2026-09-01")], date(2026, 9, 25))
+    assert ("AAPL", "2026-09-08") in asked                        # 5 US trading days after Tue 1 Sep
+    assert t["horizons"]["5"]["n"] == 1 and t["horizons"]["20"]["waiting"] == 1
+    assert t["overall"]["avg_edge"] == pytest.approx(0.04)
+
+
+def test_trust_counts_repeat_calls_once_and_shows_uncertainty(monkeypatch):
+    from datetime import date
+    from veyro import assistant
+    monkeypatch.setattr(market, "close_on_or_before", lambda t, d: 105.0 if t == "AAPL" else 100.0)
+    rows = [_call("AAPL", "Buy", "2026-08-03"), _call("AAPL", "Buy", "2026-08-04"), _call("AAPL", "Buy", "2026-08-20")]
+    t = assistant.trust(rows, date(2026, 9, 25))
+    assert t["overall"]["n"] == 2 and t["overall"]["distinct"] == 2
+    lo, hi = assistant.wilson(6, 10)
+    assert lo == pytest.approx(0.3127, abs=1e-3) and hi == pytest.approx(0.8318, abs=1e-3)
+    assert t["min_sample"] == 30 and t["overall"]["enough"] is False
+
+
+def test_trading_days_follow_the_market():
+    from veyro import assistant
+    assert assistant.add_trading_days("2026-09-24", 1, "2222.SR") == "2026-09-27"   # Thu -> Sun on Tadawul
+    assert assistant.add_trading_days("2026-09-24", 1, "AAPL") == "2026-09-25"      # Thu -> Fri in the US
 
 
 # ---------------------------------------------------------------- side calls: counted and capped; custom prices
@@ -341,3 +376,14 @@ def test_custom_price_makes_an_unpriced_model_count(monkeypatch):
     _voice(monkeypatch, model="gpt-6-luna", what="translate")._ask("s", "u")
     assert budget.spent()["other_usd"] == pytest.approx(1.4)
     db.set_setting("custom_prices", None)
+
+
+def test_trust_rating_endpoint(monkeypatch):
+    from veyro import assistant
+    monkeypatch.setattr(assistant, "trust", lambda rows, today=None: {"horizon": 5, "min_sample": 30,
+                        "by_rating": {"Buy": {"n": 12, "hits": 7, "hit_rate": 7 / 12, "ci_low": 0.32, "ci_high": 0.81, "enough": False}}})
+    from veyro import app as A
+    A._TRUST_CACHE.clear()
+    r = _client("127.0.0.1").get("/api/trust/rating/Buy").json()
+    assert r["n"] == 12 and r["enough"] is False and r["horizon"] == 5
+    assert _client("127.0.0.1").get("/api/trust/rating/Sell").json()["n"] == 0

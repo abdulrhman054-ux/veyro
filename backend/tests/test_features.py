@@ -204,12 +204,16 @@ def test_budget_cap_blocks_new_paid_sessions():
     assert not budget.blocked()
 
 
-def test_trust_scores_direction_against_index():
+def test_trust_scores_direction_against_index(monkeypatch):
+    from datetime import date
     from veyro import assistant
-    rows = [{"rating": "Buy", "ret": 0.10, "spy_ret": 0.02, "created_at": "2026-09-01", "provider": "anthropic", "quick_model": "q", "deep_model": "d", "cost_usd": 1.0},
-            {"rating": "Sell", "ret": 0.05, "spy_ret": 0.01, "created_at": "2026-09-02", "provider": "anthropic", "quick_model": "q", "deep_model": "d", "cost_usd": 1.0},
-            {"rating": "Hold", "ret": 0.0, "spy_ret": 0.0, "created_at": "2026-08-02"}]
-    t = assistant.trust(rows)
+    close = {"AAPL": 110.0, "MSFT": 105.0, "KO": 100.0, "SPY": 102.0}
+    monkeypatch.setattr(market, "close_on_or_before", lambda t, d: close[t])
+    base = {"price_at_verdict": 100.0, "spy_at_verdict": 100.0, "benchmark": "SPY", "provider": "anthropic", "quick_model": "q", "deep_model": "d", "cost_usd": 1.0}
+    rows = [{**base, "ticker": "AAPL", "rating": "Buy", "created_at": "2026-09-01", "trade_date": "2026-09-01"},    # +10% vs +2%: right
+            {**base, "ticker": "MSFT", "rating": "Sell", "created_at": "2026-09-02", "trade_date": "2026-09-02"},   # +5% vs +2%: wrong
+            {**base, "ticker": "KO", "rating": "Hold", "created_at": "2026-08-03", "trade_date": "2026-08-03"}]
+    t = assistant.trust(rows, date(2026, 9, 25))
     assert t["overall"]["n"] == 2 and t["overall"]["hits"] == 1 and t["overall"]["hit_rate"] == 0.5
     assert round(t["by_rating"]["Buy"]["avg_edge"], 4) == 0.08 and t["by_rating"]["Hold"]["n"] == 0
     assert [m["month"] for m in t["months"]] == ["2026-08", "2026-09"]

@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -1039,14 +1040,34 @@ def learning_card():
     return assistant.learning(enrich)
 
 
+_TRUST_CACHE: dict = {}
+
+
+def _trust_numbers() -> dict:
+    rows = db.list_sessions(500)
+    real = [r for r in rows if r["mode"] == "real" and r["status"] == "done"]
+    key = (len(real), max((r.get("finished_at") or "" for r in real), default=""))
+    hit = _TRUST_CACHE.get("v")
+    if hit and hit[0] == key and time.time() - hit[1] < 600:
+        return hit[2]
+    out = assistant.trust([{**r, "benchmark": ((r.get("config") or {}).get("benchmark")) or runner.benchmark_for(r["ticker"])} for r in real])
+    _TRUST_CACHE["v"] = (key, time.time(), out)
+    return out
+
+
 @app.get("/api/trust")
 def trust():
-    """The trust dashboard: how the team's calls actually did, by month, rating and model."""
+    """The trust dashboard: how the team's calls actually did at fixed horizons, by month, rating and model."""
     from . import extras
-    rows = db.list_sessions(500)
-    _prefetch_prices(rows)
-    return {**assistant.trust([enrich(r) for r in rows if r["mode"] == "real" and r["status"] == "done"]),
-            "paper": extras.paper_view()["totals"]}
+    return {**_trust_numbers(), "paper": extras.paper_view()["totals"]}
+
+
+@app.get("/api/trust/rating/{rating}")
+def trust_for_rating(rating: str):
+    """Shown next to a verdict: how often past calls of this kind were right, with its uncertainty."""
+    t = _trust_numbers()
+    return {"rating": rating, "horizon": t["horizon"], "min_sample": t["min_sample"],
+            **(t["by_rating"].get(rating) or {"n": 0, "hits": 0, "hit_rate": None, "ci_low": None, "ci_high": None, "enough": False})}
 
 
 @app.get("/api/spend")

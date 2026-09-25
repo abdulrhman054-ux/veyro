@@ -123,7 +123,7 @@ with sync_playwright() as p:
     row = page.locator("main > div:not([hidden]) tr", has_text="2222.SR").first
     rt = row.inner_text() if row.count() else ""
     check("History shows Saudi prices in SAR, not dollars", "SAR" in rt and "$" not in rt, rt.replace("\n", " | ")[:160])
-    check("trust dashboard doesn't score minutes-old calls", page.locator("text=calls younger than").count() > 0)
+    check("trust dashboard doesn't score minutes-old calls", page.locator("[data-waiting]").count() > 0)
     put_settings(page, {"sharia_enabled": True})
     # --- switch methodology: MSCI (total-assets based) is accepted and results follow it
     check("methodology switch saved", put_settings(page, {"sharia_method": "msci"}) == 200)

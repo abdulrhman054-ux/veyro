@@ -11,7 +11,8 @@ import logging
 import re
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+import math
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .lazy import yf   # loads on first use (fast startup)
@@ -366,37 +367,84 @@ def _min_age_days() -> int:
         return 7
 
 
-def trust(rows: list[dict]) -> dict:
-    """How the team's calls did, with no model involved: each finished real call is scored by the stock's
-    return since the verdict minus its benchmark's (the market index) over the same time.
-    Buy/Overweight is "right" when it beat the index, Underweight/Sell when it lagged. Hold isn't scored."""
+HORIZONS = (5, 20)   # trading days after the call; 5 = the framework's own holding period
+MIN_SAMPLE = 30      # below this a hit rate is shown as "too few to judge"
+
+
+def add_trading_days(start: str, n: int, ticker: str) -> str:
+    """The date n regular trading days after `start` in the stock's own market (Tadawul Sun-Thu, US Mon-Fri).
+    Holidays aren't in the calendar; the price used is the close on or before that date, so a holiday only
+    shifts it to the previous session."""
+    from .beginner import MARKETS
+    days = MARKETS["sa" if ticker.upper().endswith(".SR") else "us"]["days"]
+    d = date.fromisoformat(start[:10])
+    while n > 0:
+        d += timedelta(days=1)
+        if d.weekday() in days:
+            n -= 1
+    return d.isoformat()
+
+
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
+    """95% interval for a hit rate of k out of n (Wilson score): how sure the number really is."""
+    if not n:
+        return None
+    p = k / n
+    den = 1 + z * z / n
+    mid = (p + z * z / (2 * n)) / den
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den
+    return (max(0.0, mid - half), min(1.0, mid + half))
+
+
+def trust(rows: list[dict], today: date | None = None) -> dict:
+    """How the team's calls did, with no model involved. Each finished real call is scored at fixed horizons
+    (5 and 20 trading days after it): the stock's return minus its benchmark's over exactly that window.
+    Buy/Overweight is right when it beat the index, Underweight/Sell when it lagged; Hold isn't scored.
+    A call younger than a horizon is "waiting". The same stock with the same call within 5 days counts once."""
+    from . import market
     DIR = {"Buy": 1, "Overweight": 1, "Hold": 0, "Underweight": -1, "Sell": -1}
-    min_age = _min_age_days()
-    cutoff = datetime.now(timezone.utc) - timedelta(days=min_age)
+    today = today or datetime.now(timezone.utc).date()
 
-    def young(r) -> bool:
-        """A call is only judged after the framework's own holding period; a minutes-old call is noise, not a hit or miss."""
-        try:
-            t = datetime.fromisoformat(r.get("finished_at") or r.get("created_at") or "")
-        except ValueError:
-            return True
-        return (t if t.tzinfo else t.replace(tzinfo=timezone.utc)) > cutoff
+    def start_of(r):
+        made = (r.get("finished_at") or r.get("created_at") or "")[:10]
+        td = r.get("trade_date") or made
+        return min(td, made) if made else td   # a past-date analysis is priced at that day's close
 
-    def scored(r):
-        if r.get("ret") is None or r.get("spy_ret") is None or r.get("rating") not in DIR or DIR[r["rating"]] == 0:
+    seen: dict[tuple, str] = {}
+    uniq = []
+    for r in sorted(rows, key=lambda r: r.get("created_at") or ""):
+        k = (r.get("ticker"), r.get("rating"))
+        st = start_of(r)
+        last = seen.get(k)
+        if last and st and (date.fromisoformat(st) - date.fromisoformat(last)).days < 5:
+            continue
+        seen[k] = st
+        uniq.append(r)
+
+    def scored(r, n):
+        d = DIR.get(r.get("rating"))
+        if not d or not r.get("price_at_verdict") or not r.get("spy_at_verdict") or not start_of(r):
             return None
-        if young(r):
+        end = add_trading_days(start_of(r), n, r["ticker"])
+        if date.fromisoformat(end) > today:
+            return "waiting"
+        bench = r.get("benchmark") or ((r.get("config") or {}).get("benchmark"))
+        p1, b1 = market.close_on_or_before(r["ticker"], end), market.close_on_or_before(bench, end) if bench else None
+        if not p1 or not b1:
             return None
-        ex = r["ret"] - r["spy_ret"]
-        return {"hit": ex * DIR[r["rating"]] > 0, "excess": ex, "signed": ex * DIR[r["rating"]]}
+        ex = (p1 / r["price_at_verdict"] - 1) - (b1 / r["spy_at_verdict"] - 1)
+        return {"hit": ex * d > 0, "excess": ex, "signed": ex * d}
 
     def agg(items):
-        s = [x for x in items if x]
-        n = len(s)
-        return {"n": n, "hits": sum(x["hit"] for x in s), "hit_rate": (sum(x["hit"] for x in s) / n) if n else None,
-                "avg_edge": (sum(x["signed"] for x in s) / n) if n else None}
+        s = [x for x in items if isinstance(x, dict)]
+        n, k = len(s), sum(x["hit"] for x in s)
+        ci = wilson(k, n)
+        return {"n": n, "hits": k, "hit_rate": (k / n) if n else None, "avg_edge": (sum(x["signed"] for x in s) / n) if n else None,
+                "ci_low": ci[0] if ci else None, "ci_high": ci[1] if ci else None, "enough": n >= MIN_SAMPLE,
+                "waiting": sum(1 for x in items if x == "waiting")}
 
-    pairs = [(r, scored(r)) for r in rows]
+    main = HORIZONS[0]
+    pairs = [(r, scored(r, main)) for r in uniq]
     by_month: dict[str, list] = {}
     by_rating: dict[str, list] = {}
     by_model: dict[str, dict] = {}
@@ -411,13 +459,16 @@ def trust(rows: list[dict]) -> dict:
             m["cost"] += r["cost_usd"]
             m["priced"] += 1
     months = sorted(k for k in by_month if k)[-6:]
+    overall = agg([sc for _, sc in pairs])
     return {
-        "overall": {**agg([sc for _, sc in pairs]), "sessions": len(rows)},
+        "overall": {**overall, "sessions": len(rows), "distinct": len(uniq)},
+        "horizons": {str(h): agg([scored(r, h) for r in uniq]) for h in HORIZONS},
+        "horizon": main,
         "months": [{"month": k, **agg(by_month[k]), "sessions": len(by_month[k])} for k in months],
         "by_rating": {k: {**agg(v), "sessions": len(v)} for k, v in by_rating.items()},
         "by_model": [{"model": k, **agg(v["items"]), "sessions": v["sessions"],
                       "avg_cost": (v["cost"] / v["priced"]) if v["priced"] else None} for k, v in by_model.items()],
-        "min_sample": 10,
-        "pending": sum(1 for r in rows if r.get("rating") in DIR and DIR[r["rating"]] != 0 and young(r)),
-        "min_age_days": min_age,
+        "min_sample": MIN_SAMPLE,
+        "pending": overall["waiting"],
+        "min_age_days": main,
     }

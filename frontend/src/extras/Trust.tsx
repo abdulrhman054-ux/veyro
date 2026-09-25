@@ -4,10 +4,11 @@ import { SpriteSvg } from "../art/Sprite";
 import { RATING, fmtNum } from "../i18n";
 import { usePrefs } from "../prefs";
 
-type Agg = { n: number; hits: number; hit_rate: number | null; avg_edge: number | null; sessions?: number };
+type Agg = { n: number; hits: number; hit_rate: number | null; avg_edge: number | null; sessions?: number;
+  ci_low?: number | null; ci_high?: number | null; enough?: boolean; waiting?: number };
 type Trust = { overall: Agg & { sessions: number }; months: (Agg & { month: string; sessions: number })[];
   by_rating: Record<string, Agg & { sessions: number }>; by_model: (Agg & { model: string; sessions: number; avg_cost: number | null })[];
-  min_sample: number; pending?: number; min_age_days?: number; paper: { currency: string; ret: number | null; bench_ret: number | null }[] };
+  min_sample: number; pending?: number; min_age_days?: number; horizon?: number; horizons?: Record<string, Agg>; paper: { currency: string; ret: number | null; bench_ret: number | null }[] };
 
 const pct = (v: number | null | undefined, signed = false) => v == null ? "—"
   : `${signed ? (v >= 0 ? "+" : "−") : ""}${fmtNum(Math.abs(v * 100), "en", { maximumFractionDigits: 1 })}%`;
@@ -29,25 +30,29 @@ export function TrustDashboard({ active = true }: { active?: boolean }) {
         <div className="stack" style={{ gap: 0 }}>
           <h2 id="trust-h" style={{ fontSize: 22, margin: 0 }}>{ar ? "لوحة الثقة: هل أصاب الفريق؟" : "Trust dashboard: was the team right?"}</h2>
           <span className="muted" style={{ fontSize: 14 }}>{ar
-            ? "كل قرار حقيقي منتهي نقيسه: عائد السهم من وقت القرار ناقص عائد مؤشر سوقه بنفس الفترة. «شراء» يصيب إذا تفوّق على المؤشر، و«بيع» إذا تأخر عنه. «احتفاظ» ما ينحسب."
-            : "Every finished real call is scored: the stock's return since the call minus its market index over the same time. A Buy is right if it beat the index, a Sell if it lagged. Hold isn't scored."}</span>
+            ? "كل قرار حقيقي منتهي نقيسه بعد 5 أيام تداول من القرار (وبعد 20 يوم): عائد السهم ناقص عائد مؤشر سوقه بنفس الفترة بالضبط. «شراء» يصيب إذا تفوّق على المؤشر، و«بيع» إذا تأخر عنه. «احتفاظ» ما ينحسب، ونفس السهم بنفس القرار خلال 5 أيام ينحسب مرة."
+            : "Every finished real call is scored 5 trading days after it (and 20): the stock's return minus its market index over exactly that window. A Buy is right if it beat the index, a Sell if it lagged. Hold isn't scored; the same stock with the same call within 5 days counts once."}</span>
         </div>
       </div>
 
       <div className="trust-tiles">
         <div className="stat"><span className="muted">{ar ? "قرارات محسوبة" : "Scored calls"}</span><b className="ltr">{fmtNum(o.n, lang)}</b>
           <span className="muted small">{ar ? `من ${fmtNum(o.sessions, lang)} جلسة` : `of ${fmtNum(o.sessions, lang)} sessions`}</span>
-          {!!d.pending && <span className="muted small">{ar ? `${fmtNum(d.pending, lang)} قرار أحدث من ${d.min_age_days} أيام تنتظر (ما نحكم على قرار قبل فترة الاحتفاظ)` : `${fmtNum(d.pending, lang)} calls younger than ${d.min_age_days} days are waiting (a call isn't judged before its holding period)`}</span>}</div>
-        <div className="stat"><span className="muted">{ar ? "نسبة الإصابة" : "Hit rate"}</span><b className="ltr">{pct(o.hit_rate)}</b>
+          {!!d.pending && <span className="muted small" data-waiting>{ar ? `${fmtNum(d.pending, lang)} قرار تنتظر (ما مرّ عليها ${d.min_age_days} أيام تداول)` : `${fmtNum(d.pending, lang)} calls are waiting (not yet ${d.min_age_days} trading days old)`}</span>}</div>
+        <div className="stat"><span className="muted">{ar ? "نسبة الإصابة (5 أيام)" : "Hit rate (5 days)"}</span><b className="ltr">{o.n ? pct(o.hit_rate) : "—"}</b>
+          {o.ci_low != null && <span className="muted small" data-ci>{ar ? "المدى المرجّح (95٪)" : "likely range (95%)"}: <span className="ltr">{pct(o.ci_low)}–{pct(o.ci_high)}</span></span>}
           <span className="muted small">{ar ? "العشوائي حوالي 50٪" : "a coin flip is about 50%"}</span></div>
+        {d.horizons?.["20"] && <div className="stat"><span className="muted">{ar ? "نسبة الإصابة (20 يوم)" : "Hit rate (20 days)"}</span>
+          <b className="ltr">{d.horizons["20"].n ? pct(d.horizons["20"].hit_rate) : "—"}</b>
+          <span className="muted small">{ar ? `${d.horizons["20"].n} محسوبة · ${d.horizons["20"].waiting ?? 0} تنتظر` : `${d.horizons["20"].n} scored · ${d.horizons["20"].waiting ?? 0} waiting`}</span></div>}
         <div className="stat"><span className="muted">{ar ? "متوسط التفوّق" : "Average edge"}</span><b className="ltr">{pct(o.avg_edge, true)}</b>
           <span className="muted small">{ar ? "مقابل المؤشر، باتجاه القرار" : "vs the index, in the call's direction"}</span></div>
         <div className="stat"><span className="muted">{ar ? "المحفظة الافتراضية" : "Virtual portfolio"}</span><b className="ltr">{pct(paper?.ret, true)}</b>
           <span className="muted small">{ar ? "المؤشر" : "index"} <span className="ltr">{pct(paper?.bench_ret, true)}</span></span></div>
       </div>
       {small && <div className="warnstrip" role="note">{ar
-        ? `العينة صغيرة (${o.n} قرار). نحتاج ${d.min_sample} على الأقل قبل ما نحكم، فلا تبني ثقتك على هالأرقام للحين.`
-        : `Small sample (${o.n} calls). We need at least ${d.min_sample} before judging, so don't lean on these numbers yet.`}</div>}
+        ? `العينة صغيرة (${o.n} قرار). نحتاج ${d.min_sample} على الأقل قبل ما نحكم، فلا تبني ثقتك على هالأرقام للحين. المدى المرجّح يوضح كم الرقم غير أكيد.`
+        : `Small sample (${o.n} calls). We need at least ${d.min_sample} before judging, so don't lean on these numbers yet; the likely range shows how unsure the number is.`}</div>}
 
       {d.months.length > 0 && (
         <div className="stack" style={{ gap: 6 }}>

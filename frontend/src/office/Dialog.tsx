@@ -3,7 +3,7 @@ import { charColor } from "../art/Sprite";
 import { VOICES, errorBonk, verdictJingle, voiceBlip } from "../audio";
 import { CONVICTION, RATING, charName, fmtUsd, type CharKey, type Lang } from "../i18n";
 import { usePrefs } from "../prefs";
-import type { Verdict } from "../api";
+import { api, type Verdict } from "../api";
 import type { Line } from "./useSession";
 import { useLineText } from "./lineText";
 import { useVerdictText } from "./verdictText";
@@ -157,7 +157,7 @@ export function VerdictBox({ v, lang, onOpenReport, demo, sessionId, extra, tick
   const reason = useVerdictText(sessionId, v, lang)?.reason ?? null;
   return (
     <div className="dlg verdict-box" dir={lang === "ar" ? "rtl" : "ltr"} role="region" aria-label={t.verdictTag}>
-      {!motionOff && r.tone !== "none" && CONF.map((col, i) => (
+      {!motionOff && demo && r.tone !== "none" && CONF.map((col, i) => (
         <span key={i} className="conf" style={{ left: 60 + i * 105, background: col, animationDelay: `-${(i * 0.37) % 2}s` }} />
       ))}
       <span className="tag" style={{ background: charColor("Leo") }}>{t.verdictTag}</span>
@@ -174,6 +174,7 @@ export function VerdictBox({ v, lang, onOpenReport, demo, sessionId, extra, tick
         <button className="primary green btn" style={{ height: 42, fontSize: 16 }} onClick={onOpenReport}>{t.openReport}</button>
         {extra}
         {!demo && (sessionTicker ?? null) && <ShariaPanel symbol={sessionTicker!} compact />}
+        {!demo && <TrackRecord rating={v.rating} lang={lang} />}
         <span style={{ fontSize: 13, fontWeight: 700, color: "#7A6147" }}>{t.disclaimer}</span>
       </div>
     </div>
@@ -181,3 +182,24 @@ export function VerdictBox({ v, lang, onOpenReport, demo, sessionId, extra, tick
 }
 
 export const leoName = (l: Lang) => charName("Leo" as CharKey, l);
+
+/** Next to the big verdict word: how often past calls like this one were right, and how unsure that number is. */
+function TrackRecord({ rating, lang }: { rating: string; lang: Lang }) {
+  const [t, setT] = useState<{ n: number; hits: number; hit_rate: number | null; ci_low: number | null; ci_high: number | null; enough: boolean; horizon: number; min_sample: number } | null>(null);
+  useEffect(() => {
+    if (!["Buy", "Overweight", "Underweight", "Sell"].includes(rating)) return;
+    let alive = true;
+    api.get<typeof t>(`/api/trust/rating/${rating}`).then((r) => alive && setT(r)).catch(() => {});
+    return () => { alive = false; };
+  }, [rating]);
+  if (!t) return null;
+  const ar = lang === "ar";
+  const p = (x: number | null) => (x == null ? "—" : `${Math.round(x * 100)}%`);
+  const word = ar ? RATING[rating]?.ar ?? rating : RATING[rating]?.en ?? rating;
+  return <span className="track-record" data-track-record style={{ fontSize: 13, flexBasis: "100%", textAlign: "center" }}>
+    {t.n === 0
+      ? (ar ? `📊 ما عندنا للحين قرارات «${word}» سابقة مرّ عليها ${t.horizon} أيام تداول، فما نعرف كم تصيب.` : `📊 No past "${word}" calls are ${t.horizon} trading days old yet, so we don't know how often they're right.`)
+      : (ar ? `📊 قرارات «${word}» السابقة أصابت ${t.hits} من ${t.n} بعد ${t.horizon} أيام (المدى المرجّح ${p(t.ci_low)}–${p(t.ci_high)})${t.enough ? "" : "، والعينة صغيرة جداً للحكم"}.`
+        : `📊 Past "${word}" calls were right ${t.hits} of ${t.n} times after ${t.horizon} days (likely range ${p(t.ci_low)}–${p(t.ci_high)})${t.enough ? "" : "; too few to judge"}.`)}
+  </span>;
+}
