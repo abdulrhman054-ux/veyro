@@ -40,6 +40,8 @@ async def lifespan(_app: FastAPI):
     sched = assistant.Scheduler(asyncio.get_running_loop())
     if os.environ.get("VEYRO_NO_SCHEDULER") != "1":
         sched.start()
+    from .lazy import warm_up
+    warm_up()
     yield
     sched.stop.set()
 

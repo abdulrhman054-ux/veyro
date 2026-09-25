@@ -15,7 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-import yfinance as yf
+from .lazy import yf   # loads on first use (fast startup)
 
 log = logging.getLogger("veyro.live")
 SOURCE = "Yahoo Finance"

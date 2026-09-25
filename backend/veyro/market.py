@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-import yfinance as yf
+from .lazy import yf   # loads on first use (fast startup)
 
 log = logging.getLogger("veyro.market")
 SOURCE = "Yahoo Finance (yfinance)"

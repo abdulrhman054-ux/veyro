@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import yfinance as yf
+from .lazy import yf   # loads on first use (fast startup)
 
 from . import db, market, runner
 from .config import MAX_BATCH

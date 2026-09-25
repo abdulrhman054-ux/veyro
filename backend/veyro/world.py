@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
-import yfinance as yf
+from .lazy import yf   # loads on first use (fast startup)
 
 from .config import CHARACTERS, STYLE
 

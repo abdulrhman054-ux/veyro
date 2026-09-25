@@ -11,14 +11,19 @@ const IS_PACKED = app.isPackaged;
 const RES = IS_PACKED ? process.resourcesPath : path.join(__dirname, "..");
 const PY = IS_PACKED ? path.join(RES, "python", "python.exe") : path.join(__dirname, "runtime", "python", "python.exe");
 const BACKEND = path.join(RES, "backend");
-// Portable data folder: next to the portable exe, or next to Veyro.exe in the unpacked folder.
+// Data folder: installed app -> the user's app-data folder (survives updates and uninstall);
+// portable exe / unpacked folder -> "Veyro-Data" next to it (an existing folder there is always kept).
 const BASE_DIR = process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath);
-const DATA = IS_PACKED ? path.join(BASE_DIR, "Veyro-Data") : path.join(__dirname, "..", "data");
+const INSTALLED = IS_PACKED && !process.env.PORTABLE_EXECUTABLE_DIR && fs.existsSync(path.join(BASE_DIR, "Uninstall Veyro.exe"));
+const DATA = !IS_PACKED ? path.join(__dirname, "..", "data")
+  : INSTALLED && !fs.existsSync(path.join(BASE_DIR, "Veyro-Data")) ? path.join(app.getPath("appData"), "Veyro", "Veyro-Data")
+  : path.join(BASE_DIR, "Veyro-Data");
 const ICON = path.join(__dirname, "build", "icon.png");
 
 let win = null, splash = null, tray = null, backend = null, port = 8765, quitting = false, toldTray = false;
 
-if (!app.requestSingleInstanceLock()) { app.quit(); }
+const GOT_LOCK = app.requestSingleInstanceLock();
+if (!GOT_LOCK) { app.quit(); }
 app.on("second-instance", () => { if (win) { win.show(); win.focus(); } });
 app.setAppUserModelId("com.veyro.app");   // Windows notifications come from "Veyro"
 
@@ -48,13 +53,15 @@ async function startBackend() {
   const log = fs.createWriteStream(path.join(DATA, "veyro-server.log"), { flags: "a" });
   backend = spawn(PY, ["-m", "veyro"], {
     cwd: BACKEND, windowsHide: true,
-    env: { ...process.env, VEYRO_PORT: String(port), VEYRO_DATA_DIR: DATA, PYTHONUTF8: "1", PYTHONNOUSERSITE: "1", PYTHONIOENCODING: "utf-8" },
+    // Bytecode ships precompiled (tools/build_desktop.py); never try to write .pyc into the install folder.
+    env: { ...process.env, VEYRO_PORT: String(port), VEYRO_DATA_DIR: DATA, PYTHONUTF8: "1", PYTHONNOUSERSITE: "1", PYTHONIOENCODING: "utf-8",
+           PYTHONDONTWRITEBYTECODE: "1" },
   });
   backend.stdout.pipe(log); backend.stderr.pipe(log);
   backend.on("exit", (code) => { if (!quitting) showFatal(code); });
-  for (let i = 0; i < 180; i++) {            // up to ~90 s on a slow first start
+  for (let i = 0; i < 600; i++) {            // check often (open the window the moment it's ready), up to ~90 s
     if (await healthy()) return true;
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 150));
   }
   return false;
 }
@@ -94,7 +101,7 @@ function createTray() {
 async function boot() {
   splash = new BrowserWindow({ width: 520, height: 300, frame: false, resizable: false, backgroundColor: "#FBF6E9", icon: ICON, show: true });
   splash.loadURL(splashHtml());
-  const ok = await startBackend();
+  const ok = await backendReady;
   if (!ok) { showFatal("timeout"); return; }
 
   win = new BrowserWindow({
@@ -122,6 +129,8 @@ async function boot() {
   });
 }
 
-app.whenReady().then(boot);
+// Start Python straight away, in parallel with Electron's own start-up (the slowest part of launching).
+const backendReady = GOT_LOCK ? startBackend() : Promise.resolve(false);
+if (GOT_LOCK) app.whenReady().then(boot);
 app.on("before-quit", () => { quitting = true; stopBackend(); });
 app.on("window-all-closed", () => { /* stay in tray */ });

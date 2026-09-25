@@ -7,9 +7,11 @@
 
 ---
 
-## الطريقة الأسهل: التطبيق المحمول (بدون تثبيت)
-- افتح **`Veyro-Portable.exe`**، أو مجلد **`Veyro`** واضغط **`Veyro.exe`**. ما يحتاج Python ولا أي تثبيت.
-- بياناتك تنحفظ في مجلد **`Veyro-Data`** جنب التطبيق، والمفاتيح في خزنة ويندوز.
+## الطريقة الأسهل: التطبيق
+- **الأسرع:** شغّل **`Veyro-Setup.exe`** مرة وحدة (تثبيت للمستخدم الحالي، بدون صلاحيات مدير). بعدها يفتح من سطح المكتب بسرعة. بياناتك في مجلد التطبيقات الخاص بحسابك وتبقى حتى لو حذفت التطبيق.
+- أو مجلد **`Veyro`** واضغط **`Veyro.exe`** (سريع أيضاً، وبياناتك في **`Veyro-Data`** جنبه).
+- **`Veyro-Portable.exe`** ملف واحد بدون تثبيت، لكنه أبطأ في الفتح لأنه يفك نفسه كل مرة.
+- المفاتيح دائماً في خزنة ويندوز.
 - إذا سكّرت النافذة يبقى فيرو في شريط المهام (جنب الساعة) عشان التنبيهات والتقرير الصباحي. للخروج: زر فيرو في شريط المهام ← خروج.
 
 ## التشغيل من المجلد (خطوات بسيطة)
@@ -114,7 +116,7 @@
 4. Optional **execution (Alpaca)**: Off by default. Paper keys give Paper (without keys, a labelled in-app Mock). Live needs live keys, Live limits and the typed phrase. Every order needs your confirmation, and limits are enforced on the server.
 
 ## For developers
-- Portable desktop app: `python tools/build_desktop.py` (bundles Python + packages into `desktop/runtime`), then `npm run dist` in `desktop/` gives `desktop/dist/Veyro-Portable.exe` and `desktop/dist/win-unpacked/`.
+- Desktop app: `python tools/build_desktop.py` (bundles Python + packages into `desktop/runtime`, precompiled with unchecked-hash `.pyc` so no launch recompiles anything), then `npm run dist` in `desktop/` gives `desktop/dist/Veyro-Setup.exe` (recommended, fastest launches) and `desktop/dist/win-unpacked/`. `npm run dist:portable` also builds `Veyro-Portable.exe`.
 - Backend: `backend/` (FastAPI). Run `.venv\Scripts\python -m veyro` from `backend/`.
 - Frontend: `frontend/` (Vite + React + TS). Run `npm run dev` (proxies to 8765) and `npm run build` to update `frontend/dist`.
 - Tests: `.venv\Scripts\python -m pytest backend/tests -q`
