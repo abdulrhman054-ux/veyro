@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePrefs } from "../prefs";
-import { TERMS, TERM_RE, idForMatch, termById } from "./glossary";
+import { CATS, TERMS, TERM_RE, idForMatch, termById, type Cat } from "./glossary";
 
 /** A finance word in the text: tap it for a one-line plain explanation. */
 function TermChip({ id, children }: { id: string; children: ReactNode }) {
@@ -50,13 +50,20 @@ export function GlossaryModal({ onClose }: { onClose: () => void }) {
   const { prefs, t } = usePrefs();
   const ar = prefs.lang === "ar";
   const [q, setQ] = useState("");
-  const list = TERMS.filter((x) => !q.trim() || [x.ar, x.en, x.def_ar, x.def_en, ...x.match].some((s) => s.toLowerCase().includes(q.trim().toLowerCase())));
+  const [cat, setCat] = useState<Cat | "all">("all");
+  const list = TERMS.filter((x) => (cat === "all" || x.cat === cat)
+    && (!q.trim() || [x.ar, x.en, x.def_ar, x.def_en, ...x.match].some((s) => s.toLowerCase().includes(q.trim().toLowerCase()))))
+    .sort((a, b) => (ar ? a.ar.localeCompare(b.ar, "ar") : a.en.localeCompare(b.en)));
   return (
     <div className="modal-bg" role="dialog" aria-modal="true" aria-label={ar ? "قاموس المصطلحات" : "Glossary"} onClick={onClose}>
       <div className="modal stack" style={{ gap: 12, maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ fontSize: 24, margin: 0 }}>📖 {ar ? "قاموس المصطلحات المالية" : "Finance glossary"}</h2>
         <p className="muted" style={{ margin: 0 }}>{ar ? "أي كلمة تحتها خط منقّط في التقارير تقدر تضغط عليها وتطلع شرحها." : "Any dotted-underlined word in the reports can be tapped for its meaning."}</p>
-        <input className="field" autoFocus placeholder={ar ? "ابحث عن مصطلح…" : "Search a term…"} value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="field" autoFocus placeholder={ar ? `ابحث في ${TERMS.length} مصطلح…` : `Search ${TERMS.length} terms…`} value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="segbtns" role="group" aria-label={ar ? "الفئات" : "Categories"} style={{ flexWrap: "wrap" }}>
+          <button aria-pressed={cat === "all"} onClick={() => setCat("all")}>{ar ? "الكل" : "All"}</button>
+          {CATS.map((c) => <button key={c.id} aria-pressed={cat === c.id} onClick={() => setCat(c.id)}>{ar ? c.ar : c.en}</button>)}
+        </div>
         <div className="stack" style={{ gap: 8 }}>
           {list.map((x) => (
             <div key={x.id} className="logitem"><b>{ar ? x.ar : x.en}</b>{ar && <span className="muted ltr" style={{ fontSize: 12 }}> · {x.en}</span>}

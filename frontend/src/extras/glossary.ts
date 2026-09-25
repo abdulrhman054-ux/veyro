@@ -1,6 +1,8 @@
 /** Plain-language finance terms, Arabic and English. `match` lists the forms a term appears in, in either
  *  language, so the reports' text can be linked to an explanation. Keep each explanation one or two sentences. */
-export type Term = { id: string; ar: string; en: string; match: string[]; def_ar: string; def_en: string };
+export type Cat = "basics" | "trading" | "technical" | "financials" | "economy" | "calls";
+/** link: false = listed in the glossary but not underlined in reports (too common, it would clutter every line). */
+export type Term = { id: string; ar: string; en: string; match: string[]; def_ar: string; def_en: string; cat?: Cat; link?: boolean };
 
 export const TERMS: Term[] = [
   { id: "rsi", ar: "مؤشر القوة النسبية (RSI)", en: "RSI (Relative Strength Index)", match: ["RSI", "القوة النسبية"],
@@ -93,11 +95,161 @@ export const TERMS: Term[] = [
     def_ar: "مدى ثقة القرار نفسه كما يوضحه نصه (منخفضة، متوسطة، عالية)، وليست نسبة إحصائية.", def_en: "How confident the decision text itself is (low/medium/high), not a statistic." },
 ];
 
+// ---------------------------------------------------------------- common words every investor meets
+const COMMON: Term[] = [
+  // basics
+  { id: "stock", cat: "basics", link: false, ar: "السهم", en: "Stock / share", match: ["السهم", "stock"],
+    def_ar: "جزء صغير من ملكية شركة. لما تشتري سهم تصير شريك بنسبة صغيرة في أرباحها وخسائرها.", def_en: "A small piece of a company. Owning one makes you a tiny partner in its profits and losses." },
+  { id: "portfolio", cat: "basics", ar: "المحفظة", en: "Portfolio", match: ["portfolio", "المحفظة الاستثمارية"],
+    def_ar: "كل استثماراتك مع بعض: الأسهم والنقد وغيرها.", def_en: "All your investments together: stocks, cash and anything else." },
+  { id: "broker", cat: "basics", ar: "الوسيط", en: "Broker", match: ["broker", "brokerage", "الوسيط", "شركة الوساطة"],
+    def_ar: "الشركة أو التطبيق اللي تشتري وتبيع الأسهم من خلاله (في السعودية لازم يكون مرخّص من هيئة السوق المالية).", def_en: "The firm or app you buy and sell through (in Saudi Arabia it must be licensed by the CMA)." },
+  { id: "commission", cat: "basics", ar: "العمولة", en: "Commission / fees", match: ["commission", "العمولة", "رسوم التداول"],
+    def_ar: "المبلغ اللي يأخذه الوسيط على كل صفقة. تأثيرها أكبر على المبالغ الصغيرة.", def_en: "What the broker charges per trade. It weighs more on small amounts." },
+  { id: "index", cat: "basics", ar: "المؤشر", en: "Index", match: ["stock index", "المؤشر العام", "مؤشر السوق"],
+    def_ar: "رقم يلخص حركة مجموعة كبيرة من الأسهم، مثل تاسي للسوق السعودي.", def_en: "One number summarising a big group of stocks, like TASI for the Saudi market." },
+  { id: "sector", cat: "basics", ar: "القطاع", en: "Sector", match: ["sector", "القطاع"],
+    def_ar: "مجموعة شركات تشتغل في نفس المجال، مثل البنوك أو الطاقة أو الاتصالات.", def_en: "Companies in the same line of business, like banks, energy or telecoms." },
+  { id: "ipo", cat: "basics", ar: "الاكتتاب العام", en: "IPO", match: ["IPO", "initial public offering", "الاكتتاب العام", "الاكتتاب"],
+    def_ar: "أول مرة تطرح فيها شركة أسهمها للناس قبل ما تبدأ تتداول في السوق.", def_en: "When a company first sells its shares to the public before they start trading." },
+  { id: "bonus", cat: "basics", ar: "أسهم المنحة", en: "Bonus shares", match: ["bonus shares", "أسهم المنحة"],
+    def_ar: "أسهم مجانية توزعها الشركة على المساهمين من أرباحها المحتجزة. عددك يزيد والسعر ينخفض بنفس النسبة.", def_en: "Free shares given to holders from retained earnings; you hold more, the price adjusts down." },
+  { id: "split", cat: "basics", ar: "تجزئة السهم", en: "Stock split", match: ["stock split", "تجزئة السهم", "تقسيم السهم"],
+    def_ar: "تقسيم السهم الواحد لعدة أسهم بسعر أقل. قيمة استثمارك ما تتغير.", def_en: "One share becomes several at a lower price; your investment's value doesn't change." },
+  { id: "fund", cat: "basics", ar: "الصندوق الاستثماري", en: "Mutual fund", match: ["mutual fund", "investment fund", "الصندوق الاستثماري", "صناديق الاستثمار"],
+    def_ar: "مبلغ يجمعه مدير محترف من مستثمرين كثير ويستثمره نيابة عنهم مقابل رسوم.", def_en: "Money pooled from many investors and managed by a professional for a fee." },
+  { id: "sukuk", cat: "basics", ar: "الصكوك", en: "Sukuk", match: ["sukuk", "الصكوك"],
+    def_ar: "أداة استثمار متوافقة مع الشريعة تشبه السندات، تعطي عائداً من أصل حقيقي.", def_en: "Sharia-compliant certificates, similar to bonds, paying a return from a real asset." },
+  { id: "bond", cat: "basics", ar: "السندات", en: "Bonds", match: ["bond", "bonds", "treasury", "السندات"],
+    def_ar: "قرض تعطيه لحكومة أو شركة مقابل فائدة ثابتة غالباً، وأقل مخاطرة من الأسهم عادة.", def_en: "A loan to a government or company for (usually) fixed interest; generally less risky than stocks." },
+  { id: "return", cat: "basics", link: false, ar: "العائد", en: "Return", match: ["return", "returns", "العائد"],
+    def_ar: "كم ربحت أو خسرت كنسبة من المبلغ اللي استثمرته.", def_en: "What you gained or lost, as a percentage of what you put in." },
+  { id: "risk", cat: "basics", ar: "المخاطرة", en: "Risk", match: ["risk tolerance", "المخاطرة", "تحمل المخاطر"],
+    def_ar: "احتمال إن النتيجة تطلع أسوأ من المتوقع، بما فيها خسارة جزء من المبلغ.", def_en: "The chance things turn out worse than expected, including losing part of your money." },
+  { id: "longterm", cat: "basics", ar: "الاستثمار طويل الأجل", en: "Long-term investing", match: ["long-term", "long term", "طويل الأجل", "المدى الطويل"],
+    def_ar: "شراء أسهم شركات جيدة والاحتفاظ فيها سنوات، بدون الانشغال بتقلبات كل يوم.", def_en: "Buying good companies and holding them for years, ignoring day-to-day swings." },
+  { id: "speculation", cat: "basics", ar: "المضاربة", en: "Speculation", match: ["speculation", "speculative", "المضاربة", "مضاربة"],
+    def_ar: "بيع وشراء سريع للاستفادة من حركات السعر القصيرة. مخاطرته عالية.", def_en: "Quick buying and selling to catch short price moves. High risk." },
+  { id: "dca", cat: "basics", ar: "متوسط التكلفة", en: "Dollar-cost averaging", match: ["dollar-cost averaging", "average cost", "متوسط التكلفة", "تعديل المتوسط"],
+    def_ar: "تستثمر مبلغ ثابت بشكل دوري (مثلاً كل شهر) بدل ما تحاول تختار أفضل توقيت.", def_en: "Investing a fixed amount regularly (say monthly) instead of trying to time the market." },
+  { id: "emergency", cat: "basics", ar: "صندوق الطوارئ", en: "Emergency fund", match: ["emergency fund", "صندوق الطوارئ", "احتياطي للطوارئ"],
+    def_ar: "مبلغ نقدي جانبي يكفي مصاريفك كم شهر، قبل ما تستثمر في الأسهم.", def_en: "Cash set aside for a few months of expenses, before investing in stocks." },
+  // trading and orders
+  { id: "market_order", cat: "trading", ar: "أمر السوق", en: "Market order", match: ["market order", "أمر السوق", "أمر بسعر السوق"],
+    def_ar: "أمر شراء أو بيع فوري بأفضل سعر متاح الحين.", def_en: "Buy or sell right now at the best price available." },
+  { id: "limit_order", cat: "trading", ar: "الأمر المحدد", en: "Limit order", match: ["limit order", "limit price", "الأمر المحدد", "أمر محدد السعر"],
+    def_ar: "أمر ما يتنفذ إلا بالسعر اللي تحدده أو أفضل منه.", def_en: "An order that only fills at your chosen price or better." },
+  { id: "bidask", cat: "trading", ar: "العرض والطلب", en: "Bid and ask", match: ["bid", "ask price", "spread", "العرض والطلب", "سعر الطلب", "سعر العرض"],
+    def_ar: "الطلب أعلى سعر يدفعه مشتري، والعرض أقل سعر يقبله بائع. الفرق بينهم يسمى الفارق.", def_en: "The bid is the most a buyer pays, the ask the least a seller accepts; the gap is the spread." },
+  { id: "close", cat: "trading", ar: "سعر الإغلاق", en: "Closing price", match: ["closing price", "close price", "سعر الإغلاق", "آخر إغلاق"],
+    def_ar: "آخر سعر للسهم عند نهاية جلسة التداول، وهو اللي تُحسب عليه التغيرات اليومية.", def_en: "The last price when the session ends; daily changes are measured from it." },
+  { id: "open", cat: "trading", ar: "سعر الافتتاح", en: "Opening price", match: ["opening price", "سعر الافتتاح"],
+    def_ar: "أول سعر يتداول فيه السهم عند بداية الجلسة.", def_en: "The first traded price when the session starts." },
+  { id: "session", cat: "trading", ar: "جلسة التداول", en: "Trading session", match: ["trading session", "trading hours", "جلسة التداول", "ساعات التداول"],
+    def_ar: "الوقت اللي يكون فيه السوق مفتوح للبيع والشراء.", def_en: "The hours when the market is open for trading." },
+  { id: "profit_taking", cat: "trading", ar: "جني الأرباح", en: "Profit-taking", match: ["profit-taking", "profit taking", "جني الأرباح"],
+    def_ar: "بيع بعد ارتفاع السعر لتثبيت الربح، وكثيراً يسبب نزول مؤقت.", def_en: "Selling after a rise to lock in gains; it often causes a temporary dip." },
+  { id: "short", cat: "trading", ar: "البيع على المكشوف", en: "Short selling", match: ["short selling", "short sell", "shorting", "البيع على المكشوف"],
+    def_ar: "بيع سهم مستعار على أمل تشتريه لاحقاً بسعر أقل. مخاطرته كبيرة، والتطبيق ما يسمح فيه.", def_en: "Selling a borrowed share hoping to buy it back cheaper. Very risky; Veyro doesn't allow it." },
+  { id: "margin_trading", cat: "trading", ar: "التداول بالهامش", en: "Margin trading", match: ["margin trading", "buying on margin", "التداول بالهامش", "التمويل بالهامش"],
+    def_ar: "الشراء بفلوس مقترضة من الوسيط. يضاعف الربح والخسارة، والتطبيق ما يسمح فيه.", def_en: "Buying with money borrowed from the broker. Magnifies gains and losses; Veyro doesn't allow it." },
+  { id: "paper_trading", cat: "trading", ar: "التداول الافتراضي", en: "Paper trading", match: ["paper trading", "التداول الافتراضي", "المحفظة الافتراضية"],
+    def_ar: "تجربة الشراء والبيع بأسعار حقيقية بدون فلوس حقيقية، للتعلّم.", def_en: "Practising trades at real prices without real money, to learn." },
+  // technical analysis
+  { id: "chart", cat: "technical", ar: "الرسم البياني (الشارت)", en: "Chart", match: ["price chart", "الشارت", "الرسم البياني"],
+    def_ar: "رسم يوضح حركة سعر السهم مع الوقت.", def_en: "A picture of the price moving over time." },
+  { id: "candles", cat: "technical", ar: "الشموع اليابانية", en: "Candlesticks", match: ["candlestick", "candlesticks", "الشموع اليابانية", "الشمعة"],
+    def_ar: "طريقة رسم كل يوم كشمعة توضح الافتتاح والإغلاق والأعلى والأدنى. خضراء = أغلق أعلى، حمراء = أغلق أقل.", def_en: "Each day drawn as a candle showing open, close, high and low. Green = closed higher, red = lower." },
+  { id: "trend", cat: "technical", ar: "الاتجاه", en: "Trend", match: ["uptrend", "downtrend", "الاتجاه الصاعد", "الاتجاه الهابط", "الاتجاه العام"],
+    def_ar: "الوجهة العامة للسعر خلال فترة: صاعد أو هابط أو عرضي.", def_en: "The overall direction of the price over a period: up, down or sideways." },
+  { id: "correction", cat: "technical", ar: "التصحيح", en: "Correction", match: ["correction", "pullback", "التصحيح", "تصحيح"],
+    def_ar: "نزول مؤقت (غالباً 10٪ أو أكثر) بعد صعود قوي، قبل ما يكمل الاتجاه أو يتغير.", def_en: "A temporary drop (often 10%+) after a strong rise, before the trend resumes or changes." },
+  { id: "breakout", cat: "technical", ar: "الاختراق", en: "Breakout", match: ["breakout", "break out", "الاختراق", "اختراق"],
+    def_ar: "لما يتجاوز السعر مستوى مقاومة أو ينزل تحت دعم مهم، وغالباً يتبعه تحرك قوي.", def_en: "When the price clears a resistance (or breaks a support), often followed by a strong move." },
+  { id: "rebound", cat: "technical", ar: "الارتداد", en: "Rebound", match: ["rebound", "bounce", "الارتداد", "ارتداد"],
+    def_ar: "رجوع السعر للصعود بعد نزول.", def_en: "The price turning back up after a fall." },
+  { id: "peak", cat: "technical", ar: "القمة والقاع", en: "Peak and bottom", match: ["all-time high", "52-week high", "52-week low", "القمة", "القاع", "أعلى مستوى"],
+    def_ar: "القمة أعلى سعر وصله السهم في فترة، والقاع أدنى سعر.", def_en: "The peak is the highest price in a period, the bottom the lowest." },
+  { id: "overbought", cat: "technical", ar: "تشبّع الشراء والبيع", en: "Overbought / oversold", match: ["overbought", "oversold", "تشبع شراء", "تشبع بيع", "تشبّع"],
+    def_ar: "تشبّع الشراء يعني السعر ارتفع بسرعة وممكن يهدأ، وتشبّع البيع يعني نزل بسرعة وممكن يرتد.", def_en: "Overbought: rose fast and may cool off. Oversold: fell fast and may bounce." },
+  { id: "bollinger", cat: "technical", ar: "بولينجر باندز", en: "Bollinger Bands", match: ["Bollinger", "بولينجر"],
+    def_ar: "خطين حول المتوسط يتوسعون مع التذبذب. لمس الخط العلوي أو السفلي يلمّح لحركة زائدة.", def_en: "Two lines around the average that widen with volatility; touching them hints the move is stretched." },
+  // financial statements
+  { id: "net_income", cat: "financials", ar: "صافي الربح", en: "Net income", match: ["net income", "net profit", "صافي الربح", "صافي الدخل"],
+    def_ar: "الربح اللي يبقى للشركة بعد كل المصاريف والضرائب والزكاة.", def_en: "What the company keeps after all costs, taxes and zakat." },
+  { id: "income_stmt", cat: "financials", ar: "قائمة الدخل", en: "Income statement", match: ["income statement", "قائمة الدخل"],
+    def_ar: "تقرير يوضح الإيرادات والمصاريف والربح خلال فترة.", def_en: "The report of revenue, costs and profit over a period." },
+  { id: "balance_sheet", cat: "financials", ar: "الميزانية العمومية", en: "Balance sheet", match: ["balance sheet", "الميزانية العمومية", "قائمة المركز المالي"],
+    def_ar: "صورة لما تملكه الشركة (الأصول) وما عليها (الخصوم) وحقوق المساهمين في يوم معيّن.", def_en: "A snapshot of what the company owns (assets), owes (liabilities) and its equity on a date." },
+  { id: "assets", cat: "financials", ar: "الأصول والخصوم", en: "Assets and liabilities", match: ["assets", "liabilities", "الأصول", "الخصوم", "المطلوبات"],
+    def_ar: "الأصول كل ما تملكه الشركة، والخصوم كل ما عليها من ديون والتزامات.", def_en: "Assets are what the company owns; liabilities are what it owes." },
+  { id: "equity", cat: "financials", ar: "حقوق المساهمين", en: "Shareholders' equity", match: ["shareholders' equity", "book value", "حقوق المساهمين", "حقوق الملكية", "القيمة الدفترية"],
+    def_ar: "الأصول ناقص الخصوم: قيمة الشركة الدفترية اللي تخص المساهمين.", def_en: "Assets minus liabilities: the book value that belongs to shareholders." },
+  { id: "roe", cat: "financials", ar: "العائد على حقوق المساهمين (ROE)", en: "ROE (return on equity)", match: ["ROE", "return on equity", "العائد على حقوق المساهمين", "العائد على حقوق الملكية"],
+    def_ar: "كم ربح تحققه الشركة من كل ريال من أموال المساهمين. أعلى = استخدام أفضل للأموال.", def_en: "Profit made per unit of shareholders' money. Higher = money used better." },
+  { id: "pb", cat: "financials", ar: "مضاعف القيمة الدفترية (P/B)", en: "P/B ratio", match: ["P/B", "price-to-book", "مضاعف القيمة الدفترية"],
+    def_ar: "سعر السهم مقسوم على قيمته الدفترية. أقل من 1 ممكن يعني السوق يقيّمها بأقل من أصولها.", def_en: "Price divided by book value per share. Below 1 can mean the market values it under its assets." },
+  { id: "growth", cat: "financials", ar: "النمو", en: "Growth", match: ["revenue growth", "earnings growth", "YoY", "year-over-year", "نمو الإيرادات", "نمو الأرباح", "على أساس سنوي"],
+    def_ar: "كم زادت المبيعات أو الأرباح مقارنة بنفس الفترة من السنة الماضية.", def_en: "How much sales or profits rose versus the same period last year." },
+  { id: "fair_value", cat: "financials", ar: "القيمة العادلة", en: "Fair value", match: ["fair value", "intrinsic value", "القيمة العادلة", "القيمة الحقيقية"],
+    def_ar: "تقدير لقيمة السهم «الحقيقية» حسب أرباح الشركة ونموها، ويُقارن بالسعر الحالي.", def_en: "An estimate of what the share is 'really' worth from profits and growth, compared with the price." },
+  { id: "growth_value", cat: "financials", ar: "أسهم النمو وأسهم القيمة", en: "Growth vs value stocks", match: ["growth stock", "growth stocks", "value stock", "value stocks", "أسهم النمو", "أسهم القيمة"],
+    def_ar: "أسهم النمو لشركات أرباحها تكبر بسرعة وغالباً غالية، وأسهم القيمة لشركات ناضجة سعرها منخفض مقارنة بأرباحها.", def_en: "Growth stocks: fast-growing, often pricey. Value stocks: mature firms priced low versus profits." },
+  { id: "defensive", cat: "financials", ar: "الأسهم الدفاعية", en: "Defensive stocks", match: ["defensive", "blue chip", "blue-chip", "الأسهم الدفاعية", "الأسهم القيادية"],
+    def_ar: "شركات كبيرة ومستقرة (مثل الغذاء والاتصالات) تتأثر أقل بالأزمات.", def_en: "Large, steady companies (food, telecoms) that suffer less in downturns." },
+  // economy
+  { id: "gdp", cat: "economy", ar: "الناتج المحلي (GDP)", en: "GDP", match: ["GDP", "gross domestic product", "الناتج المحلي"],
+    def_ar: "قيمة كل ما ينتجه البلد من سلع وخدمات. نموه يعني الاقتصاد يتوسع.", def_en: "The value of everything a country produces. Growth means the economy is expanding." },
+  { id: "recession", cat: "economy", ar: "الركود", en: "Recession", match: ["recession", "الركود", "ركود"],
+    def_ar: "فترة ينكمش فيها الاقتصاد وتضعف فيها أرباح الشركات عادة.", def_en: "A period when the economy shrinks and company profits usually weaken." },
+  { id: "central_bank", cat: "economy", ar: "البنك المركزي", en: "Central bank", match: ["central bank", "SAMA", "البنك المركزي", "ساما", "الفيدرالي", "الاحتياطي الفيدرالي"],
+    def_ar: "الجهة اللي تحدد أسعار الفائدة وتدير العملة (ساما في السعودية، والفيدرالي في أمريكا).", def_en: "The body that sets interest rates and manages the currency (SAMA in Saudi, the Fed in the US)." },
+  { id: "fx", cat: "economy", link: false, ar: "سعر الصرف", en: "Exchange rate", match: ["exchange rate", "currency", "سعر الصرف", "العملة"],
+    def_ar: "سعر عملة مقابل عملة ثانية. الريال مربوط بالدولار عند حوالي 3.75.", def_en: "One currency's price in another. The riyal is pegged to the dollar at about 3.75." },
+  { id: "oil", cat: "economy", ar: "أسعار النفط", en: "Oil prices", match: ["oil price", "oil prices", "Brent", "OPEC", "برنت", "أوبك", "أسعار النفط"],
+    def_ar: "أسعار النفط تأثر بقوة على السوق السعودي وأرباح شركات الطاقة وميزانية الدولة.", def_en: "Oil prices strongly affect the Saudi market, energy companies and state budgets." },
+  { id: "safe_haven", cat: "economy", ar: "الملاذ الآمن", en: "Safe haven", match: ["safe haven", "safe-haven", "الملاذ الآمن"],
+    def_ar: "أصل يلجأ له المستثمرون وقت الخوف، مثل الذهب.", def_en: "An asset investors run to when afraid, like gold." },
+  { id: "commodities", cat: "economy", ar: "السلع", en: "Commodities", match: ["commodities", "commodity", "السلع"],
+    def_ar: "مواد خام تتداول عالمياً مثل النفط والذهب والنحاس والقمح.", def_en: "Raw materials traded worldwide: oil, gold, copper, wheat." },
+  { id: "crypto", cat: "economy", ar: "العملات الرقمية", en: "Cryptocurrency", match: ["cryptocurrency", "crypto", "Bitcoin", "بيتكوين", "العملات الرقمية"],
+    def_ar: "عملات إلكترونية مثل بيتكوين، تقلبها عالي جداً وما لها قوائم مالية.", def_en: "Digital coins like Bitcoin: very volatile, with no financial statements." },
+  { id: "bullmarket", cat: "economy", ar: "السوق الصاعد والهابط", en: "Bull and bear market", match: ["bull market", "bear market", "السوق الصاعد", "السوق الهابط"],
+    def_ar: "السوق الصاعد فترة ارتفاع طويلة وتفاؤل، والهابط فترة نزول (غالباً 20٪ أو أكثر) وتشاؤم.", def_en: "A bull market is a long rise with optimism; a bear market a fall (often 20%+) with pessimism." },
+  { id: "bubble", cat: "economy", ar: "الفقاعة", en: "Bubble", match: ["bubble", "الفقاعة"],
+    def_ar: "لما ترتفع الأسعار بشكل مبالغ فيه عن القيمة الحقيقية، وغالباً تنتهي بنزول حاد.", def_en: "Prices rising far above real value, usually ending in a sharp fall." },
+  // the team's calls
+  { id: "buy", cat: "calls", link: false, ar: "شراء", en: "Buy", match: ["شراء"],
+    def_ar: "أقوى رأي إيجابي من الفريق: يرون فرصة واضحة للسهم.", def_en: "The team's strongest positive call: they see a clear opportunity." },
+  { id: "sell", cat: "calls", link: false, ar: "بيع", en: "Sell", match: ["بيع"],
+    def_ar: "أقوى رأي سلبي: الفريق يشوف مخاطر أكبر من الفرص الحين.", def_en: "The strongest negative call: the team sees more risk than opportunity now." },
+  { id: "disclaimer", cat: "calls", ar: "ليست نصيحة مالية", en: "Not financial advice", match: ["not financial advice", "ليست نصيحة مالية", "وليس نصيحة مالية"],
+    def_ar: "التحليل يساعدك تفكّر، لكن القرار ومسؤوليته عليك. استشر مختص مرخّص إذا احتجت.", def_en: "The analysis helps you think; the decision and its responsibility are yours. Ask a licensed adviser if needed." },
+];
+
+const CAT_OF: Record<string, Cat> = {
+  rsi: "technical", macd: "technical", ma: "technical", support: "technical", volatility: "technical", volume: "technical", momentum: "technical",
+  pe: "financials", eps: "financials", revenue: "financials", margin: "financials", fcf: "financials", debt: "financials", dividend: "financials",
+  marketcap: "financials", valuation: "financials", guidance: "financials", earnings: "financials",
+  bull: "calls", bear: "calls", overweight: "calls", underweight: "calls", hold: "calls", conviction: "calls",
+  stoploss: "trading", target: "trading", entry: "trading", position: "trading", liquidity: "trading",
+  diversification: "basics", benchmark: "basics", alpha: "basics", etf: "basics",
+  sentiment: "economy", interest: "economy", inflation: "economy", futures: "economy",
+};
+TERMS.forEach((t) => { t.cat = t.cat ?? CAT_OF[t.id] ?? "basics"; });
+TERMS.push(...COMMON);
+
+export const CATS: { id: Cat; ar: string; en: string }[] = [
+  { id: "basics", ar: "الأساسيات", en: "Basics" }, { id: "trading", ar: "التداول والأوامر", en: "Trading & orders" },
+  { id: "technical", ar: "التحليل الفني", en: "Technical analysis" }, { id: "financials", ar: "القوائم المالية", en: "Financials" },
+  { id: "economy", ar: "الاقتصاد والأسواق", en: "Economy & markets" }, { id: "calls", ar: "قرارات الفريق", en: "The team's calls" },
+];
+
 export function termById(id: string) { return TERMS.find((t) => t.id === id); }
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 /** One regex over every form, longest first so "free cash flow" wins over "cash flow". */
-const forms = TERMS.flatMap((t) => t.match.map((m) => ({ m, id: t.id }))).sort((a, b) => b.m.length - a.m.length);
+const forms = TERMS.filter((t) => t.link !== false).flatMap((t) => t.match.map((m) => ({ m, id: t.id }))).sort((a, b) => b.m.length - a.m.length);
 const byForm = new Map(forms.map((f) => [f.m.toLowerCase(), f.id]));
 // Latin forms need word boundaries; Arabic forms may carry prefixes like «ال» or «و», so they match as substrings.
 export const TERM_RE = new RegExp(forms.map((f) => /[A-Za-z]/.test(f.m) ? `\\b${esc(f.m)}\\b` : esc(f.m)).join("|"), "gi");
