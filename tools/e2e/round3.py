@@ -45,7 +45,7 @@ with sync_playwright() as p:
     # trust dashboard
     pg.locator("header button", has_text="عربي").click(); pg.wait_for_timeout(500)
     pg.locator("nav button", has_text="السجل").click(); pg.wait_for_timeout(2000)
-    check("trust dashboard shown", pg.locator("#trust-h").count()==1 and pg.locator(".trust-tiles .stat").count()==4)
+    check("trust dashboard shown", pg.locator("#trust-h").count()==1 and pg.locator(".trust-tiles .stat").count()>=4)
     pg.locator("#trust-h").screenshot(path=f"{S}/r3_trust_h.png")
     pg.locator("section.trust").screenshot(path=f"{S}/r3_trust.png")
     # budget cap: set a tiny cap and confirm new paid sessions are refused

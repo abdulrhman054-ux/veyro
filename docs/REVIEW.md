@@ -13,13 +13,20 @@ Branch `claude/affectionate-cerf-mjmt95`. Tested three ways: as a new user (Play
 
 ## 1. Verdict
 
-**Not ready for a real beginner to use with real money, anywhere.**
+*Updated after the second round (every recommendation implemented, see "Second round" below). The first-round verdict is kept in git history.*
 
-1. The core idea is good and honestly framed ("not financial advice" everywhere, Demo clearly labelled, execution off by default with typed confirmation). Engineering quality is above average for a solo app.
-2. But the money advice is a set of single-stock picks with no index-fund option. Until today it could put 42% in one name against its own stated 40% cap. It still lets a single-stock report allocate ~98% of the budget to one company, and it ignores fees. The analysis itself can cost 1–2% of a SAR 1,000 budget before any broker fee.
-3. The track-record numbers (trust dashboard) were scoring calls minutes old. They now wait for the holding period, but the sample will stay statistically meaningless for months. Nothing on screen shows a confidence interval.
-4. "Global" is aspirational: two markets are hard-coded throughout: `.SR`, SAR/USD only, the NY date and clock, US-only screeners, and a US-only market-open chip.
-5. Safe to use as a learning and thinking tool with paper money today. Real money needs the top items in §7 first.
+**Much safer as a learning tool; still not something a beginner should follow with real money without their own judgement.**
+
+1. The money logic is now defensible:
+   - every stock is capped at 40% and every sector at 50%;
+   - weights account for volatility, and look-alike pairs are flagged;
+   - fees you enter are deducted, and the plan says plainly when they aren't entered;
+   - beginners see a no-analysis index-fund option first;
+   - a warning appears when the analysis costs more than 0.5% of the amount.
+2. The track record is honest: it is scored at fixed 5/20-session horizons with a 95% range, "too few to judge" is shown under 30 calls, and the verdict shows how often past calls of that kind were right. It will still be statistically meaningless for months, and the app now says so.
+3. The core risk hasn't changed: a "Buy" is an LLM's reading of free data. It isn't personal advice, it doesn't know your finances, and it has no proven edge yet.
+4. Two markets only, by the owner's choice. The Saudi/US specifics are now handled correctly in place: local dates, holidays, per-market status and honest quote times.
+5. Real money still needs the live-data checks in §8, especially prices, fees and the Sharia coverage on your own machine.
 
 ---
 
@@ -44,15 +51,17 @@ Severity reflects impact on money, safety or trust.
 | 13 | Medium | First run | CONFIRMED | A new visitor with an English browser got an Arabic-only welcome dialog that blocked the language button (`p0_first_run_*`). | `ce7c872` (follows browser language) |
 | 14 | Low | Wording | CONFIRMED | Plan said "1 shares" / "6 سهم". The "Share" column (a money target) was easy to confuse with "Shares". | `ce7c872` |
 | 15 | Low | Spend cap | INFERRED | The month boundary used local time while `created_at` is UTC: sessions between 00:00 and 03:00 on the 1st (UTC+3) fell outside both months. | `41d24dc` |
-| 16 | Medium | Spend cap | INFERRED | Side LLM calls are never counted and don't check the cap: translate, verdict text, Albie's briefing/analyze/link, Ask the team, the beginner lesson (a **GET** with a paid side effect), and connection tests. Albie's in-session link also isn't in the session total. | Not fixed. Each is small (≈ one call), but they add up; needs a spend ledger fed by one shared tracker (§7 #3). |
-| 17 | Medium | Spend cap | CONFIRMED (UI) | Non-Claude providers show "price unknown" (`p4_settings_other_provider_en_1440.png`), so the cap can't protect OpenAI/DeepSeek/etc. users. | Partly: the UI now says so plainly. A real fix needs a price table per provider (unverified prices were deliberately not guessed, decision 17). |
-| 18 | High | Desktop | INFERRED | If the backend fails to start, closing the error splash leaves Electron running with no window and holding the single-instance lock. Every relaunch then does nothing until the process is killed. A Python backend that outlives a crashed Electron keeps the morning report (paid) running. | Not fixed: **UNVERIFIED**, Electron on Windows can't run here. Fix: quit on splash close after failure; a parent-PID watchdog in the backend. |
-| 19 | Medium | Concurrency | INFERRED | Two runs of the same ticker, date and models share one LangGraph checkpoint thread (e.g. a single session plus a scan containing it). The second "resumes" the first's in-progress state. | Not fixed: needs a per-key run lock; low frequency. |
-| 20 | Medium | Leaks | INFERRED | `/ws/live` lets any client add up to 120 symbols per message, never removed. Symbols with no data are re-polled every 20 s forever. The upstream stream keeps running with no clients. `BUSES`/`SCAN_BUSES`/`BACKTESTS` keep every event for the process lifetime, and the desktop app lives in the tray for days. | Not fixed; recommended: per-client symbol sets, pause the hub with no clients, prune buses minutes after `end`. |
-| 21 | Low | Security | INFERRED | The execution Origin allowlist includes the Vite dev origins `:5173` in production. Any local dev server on 5173 could propose and confirm orders, within limits and only when Live is unlocked. | Not fixed; gate the dev origins behind an env flag. |
-| 22 | Medium | Data honesty | INFERRED | `market.last_price` stamps `as_of` with *fetch time*, not quote time. With the market closed, "price at verdict" shows yesterday's close labelled as now. | Not fixed; label it "fetched at", or use the quote's own timestamp. |
-| 23 | Low | UX | CONFIRMED | At 390 px the in-stage dialogue and verdict text scale to ~7–9 px and are unreadable (`p2_verdict_ar_390.png`). The full text is readable in the minutes below the stage. | Not fixed (design). |
+| 16 | Medium | Spend cap | INFERRED | Side LLM calls are never counted and don't check the cap: translate, verdict text, Albie's briefing/analyze/link, Ask the team, the beginner lesson (a **GET** with a paid side effect), and connection tests. Albie's in-session link also isn't in the session total. | `84e7a9d` (one spend ledger; side calls counted per reply and refused at the cap; beginner guide is POST) |
+| 17 | Medium | Spend cap | CONFIRMED (UI) | Non-Claude providers show "price unknown" (`p4_settings_other_provider_en_1440.png`), so the cap can't protect OpenAI/DeepSeek/etc. users. | `41d24dc` (UI says so) + `84e7a9d` (the owner can enter a model's price; then the estimate and cap count it) |
+| 18 | High | Desktop | INFERRED | If the backend fails to start, closing the error splash leaves Electron running with no window and holding the single-instance lock. Every relaunch then does nothing until the process is killed. A Python backend that outlives a crashed Electron keeps the morning report (paid) running. | `c5d4ee7`: the error screen has Close and closing quits; the backend watchdog exits when Electron dies (watchdog tested here; the Electron part is **UNVERIFIED**, `node --check` only) |
+| 19 | Medium | Concurrency | INFERRED | Two runs of the same ticker, date and models share one LangGraph checkpoint thread (e.g. a single session plus a scan containing it). The second "resumes" the first's in-progress state. | `12a50a6` (a duplicate Start attaches to the running session; a fresh start waits while a stopped run finishes) |
+| 20 | Medium | Leaks | INFERRED | `/ws/live` lets any client add up to 120 symbols per message, never removed. Symbols with no data are re-polled every 20 s forever. The upstream stream keeps running with no clients. `BUSES`/`SCAN_BUSES`/`BACKTESTS` keep every event for the process lifetime, and the desktop app lives in the tray for days. | `4f3b37f` (upstream = base + open screens + alerts, ≤ 200 extra; failing symbols back off; hub pauses with nobody watching; session buses pruned after 30 min and rebuilt on demand) |
+| 21 | Low | Security | INFERRED | The execution Origin allowlist includes the Vite dev origins `:5173` in production. Any local dev server on 5173 could propose and confirm orders, within limits and only when Live is unlocked. | `4f3b37f` (`VEYRO_DEV=1` only) |
+| 22 | Medium | Data honesty | INFERRED | `market.last_price` stamps `as_of` with *fetch time*, not quote time. With the market closed, "price at verdict" shows yesterday's close labelled as now. | `5328c31` (a closed-market quote is dated as that session's close; the verdict shows "close of …") |
+| 23 | Low | UX | CONFIRMED | At 390 px the in-stage dialogue and verdict text scale to ~7–9 px and are unreadable (`p2_verdict_ar_390.png`). The full text is readable in the minutes below the stage. | `139c4a5` (under 700 px the dialogue and verdict render under the stage at 16–17 px) |
 | 24 | Low | Test harness | CONFIRMED | The e2e "price alert fires on a live tick" check waited a fixed 4 s while the fake feed ticks random symbols: it failed 1 time in 3. | `313c727` (polls up to 15 s) |
+| 25 | Medium | Relay | CONFIRMED | With Anthropic unreachable, the relay raised before closing its HTTP client (leak and a 500). Test: `test_relay_closes_its_client_when_anthropic_is_unreachable`, which fails before the fix. | `4f3b37f` (closes the client, answers 502) |
+| 26 | Low | Orders | CONFIRMED | "Checking the risk limits…" on the Orders screen was Tank's speech bubble, not a stuck loader as I first wrote. It still claimed checks while execution was off. | `139c4a5` |
 
 Checked and OK (INFERRED from code, several confirmed by the audit scripts):
 - **Keys:** stored in the keyring only and masked in API responses. A log scrub filter is present, and no key reached the DB in tests.
@@ -119,25 +128,35 @@ Screenshots are in `verification/review/`; the full run notes are in `notes_*.tx
 
 ## 4. Financial-logic findings
 
-| Issue | Why it matters for the user's money | Recommendation |
+| Issue | Why it matters for the user's money | What was done (second round) |
 |---|---|---|
-| **Single-stock and two-stock plans are uncapped** (decision 72: the 40% cap applies only with 3+ picks). A single-stock report puts ~98% of the budget in one company (`sharia_on_report.png`: 14 × AAPL = $2,940 of $3,000). | One name can halve; a beginner reads "The team recommends buying" as "put it all in". | Cap every name at 40% (or 25% for beginners) and keep the rest as cash, or show "this is one stock, not a portfolio" loudly. Owner decision: not changed silently. |
-| **Weights: Buy 2, Overweight 1, × conviction.** Conviction is an LLM's reading of LLM text, labelled honestly. | Weights express the model's enthusiasm, not risk. Two correlated tech Buys get 80% together. | Add inverse-volatility sizing (free from price history), a sector cap (e.g. 50%), and a correlation check (60 days of daily returns). |
-| **No fees, spread or FX cost** in the plan. | On SAR 1,000, a minimum-commission broker can take several percent. The plan's "cash left" is not what the user would have. | Add a "fees" field (default 0.155% + 15% VAT for Tadawul is the commonly cited cap, **unverified primary**; $0 for most US brokers) plus a cash buffer, e.g. 2%. |
-| **The analysis cost isn't compared with the budget.** | $5 of LLM cost on $267 is 1.9%, like a very bad fund fee. | Warn when the estimated cost is over 0.5% of the amount; suggest Haiku or economy mode. |
-| **No index-fund path for beginners.** | The single most useful advice for a $1,000 beginner is missing. | Add broad-market ETFs to the universe with a plain "the simplest option" card (fundamentals-less, as crypto already is). |
-| **Trust dashboard** (fixed: holding-period wait). Remaining issues: calls are scored "since the verdict until now", so ages differ; duplicates of the same ticker count as independent; the hit rate has no uncertainty; dividends are ignored on both sides (price vs price index: consistent but not total return). | 10 calls at 60% hit rate has a 95% interval of roughly 30–85%: it proves nothing. | Score at a fixed horizon (e.g. 5 and 20 trading days) using `close_on_or_before`; show the Wilson interval; raise the minimum sample to 30; dedupe same-ticker same-week calls. |
-| **Virtual portfolio**: P&L and alpha from entry to now are computed correctly; the benchmark window matches (frozen at close). Ignores dividends, fees and FX (USD positions for a SAR user). Survivorship: a delisted ticker returns no price → value unknown, and the total becomes "unknown" (honest). | Overstates returns relative to reality by the fees; understates them for high-dividend Saudi stocks. | Add a fees setting and a dividend toggle (yfinance `dividends` is free); show the SAR-equivalent P&L for a SAR user holding USD. |
-| **Pre-screen** score = 2×trend + 3-month return − 0.3×vol. | Pure momentum: it sends the stocks that already ran up to the paid analysis. Defensible as a *cost filter* (labelled so), not as selection. | Offer a "quality/value" alternative from free data: 12-1 month momentum (skip last month), 52-week-high distance, dividend yield, P/E vs sector. Show which filter was used. |
-| **Benchmarks**: `.SR` → `^TASI.SR` (KSA fallback), US → SPY. | Reasonable. KSA is a USD ETF of *large and mid* Saudi caps, not TASI; the peg makes currency noise small, but composition differs. | Store which benchmark was used (already done). For new markets use the local broad index, or its most liquid ETF when Yahoo's index history is short. |
-| **Data quality**: `as_of` is fetch time (#22); stale closed-market quotes look live on the verdict; `auto_adjust=False` history is split-adjusted but not dividend-adjusted (fine for price comparisons); NaN rows are dropped; holidays aren't modelled (Tadawul/US status uses regular hours only). | A user may act on "price now" that is yesterday's close. | Show the quote's own time; add the exchange holiday calendars (free: exchange websites; `pandas_market_calendars` covers NYSE and others). |
-| **Risk communication**: disclaimers are everywhere and not buried. The bold green "✅ The team recommends buying" plus "BUY" plus confetti overstates confidence for a model-generated call. | Beginners anchor on the big word. | Show conviction and "how often calls like this were right (n=…)" next to the verdict word; tone down confetti for real money. |
+| **Single-stock and two-stock plans were uncapped** (decision 72). A single-stock report put ~98% of the budget in one company (`sharia_on_report.png`). | One name can halve; a beginner reads "The team recommends buying" as "put it all in". | `bb1169f`: 40% cap on every stock always; the rest stays in cash with "one or two stocks are not a diversified portfolio" (e2e `round4`). |
+| **Weights: Buy 2, Overweight 1, × conviction.** | Weights expressed the model's enthusiasm, not risk; two correlated tech Buys could get 80%. | `bb1169f`: × inverse volatility (clipped ×0.5–×2), 50% sector cap, correlation > 0.8 flagged (unit tests in `test_allocation_risk.py`). |
+| **No fees** in the plan. | On small amounts a minimum commission can take several percent. | `bb1169f`: owner-entered fees per market (rate, minimum, VAT) are deducted; the plan says when they aren't entered. No default: the Tadawul cap and VAT treatment are unverified. |
+| **The analysis cost wasn't compared with the budget.** | $5 on $267 is 1.9%. | `6c8737c`: a warning above 0.5% of the amount, suggesting Haiku, economy mode or the index fund. |
+| **No index-fund path for beginners.** | The most useful advice for a $1,000 beginner was missing. | `6c8737c`: 9412.SR / SPYM / VT card with the units your amount buys, no paid analysis, one click to the virtual portfolio. |
+| **Trust dashboard** scored "since the call until now", counted duplicates, showed no uncertainty. | 10 calls at 60% has a 95% range of about 31–83%. | `1441abe`: 5- and 20-session horizons in each market's calendar, duplicates within 5 days counted once, Wilson interval, minimum 30, and the verdict shows the track record. |
+| **Virtual portfolio** ignored fees, dividends and currency. | Overstated returns by the fees; understated them for dividend payers. | `f2c57de`: fees in and out, dividends while held (fund benchmarks too), and a combined USD total including currency moves. |
+| **Pre-screen** was pure momentum. | It sent what had already run up to the paid analysis. | `f2c57de`: a "steady" mode (12-1 month return − volatility − worst drop). Value/quality factors (P/E, dividend yield) were not added: they need per-company fundamentals per candidate, which is slow with free data. |
+| **Benchmarks**: `.SR` → `^TASI.SR` (KSA fallback), US → SPY. | Reasonable; KSA ≠ TASI in composition. | Unchanged (sound). The benchmark used is stored per session. |
+| **Data quality**: fetch-time `as_of`, no holidays. | A closed-market price looked live. | `5328c31`: closed-market quotes dated as that session's close; XSAU/XNYS holiday calendars. Split/dividend adjustment unchanged (consistent price-vs-price-index). |
+| **Risk communication**: the bold "BUY" with confetti overstated confidence. | Beginners anchor on the big word. | `1441abe`: no confetti on real-money verdicts, and the track record sits next to the verdict word. |
 
 ---
 
 ## 5. Global readiness
 
-**Hard-coded to Saudi/US (found by grep and reading):**
+**Owner decision (second round):** keep each market as it is, with no per-market config refactor for now (DECISIONS 105). Fixed in place instead (`5328c31`):
+- the analysis date is the stock's own market date;
+- the header shows Tadawul and US separately;
+- the office clock follows the stock's market;
+- holidays come from XSAU and XNYS calendars;
+- a closed-market quote is dated as that session's close;
+- the English US hours no longer assume a reader in Saudi time.
+
+The refactor below is still what a *third* market would need.
+
+**Hard-coded to Saudi/US (found by grep and reading; the date, clock and status items are fixed as above):**
 - Suffix `.SR` special cases in about 48 backend places, e.g. `beginner`, `runner.benchmark_for`, `priceText`, `live`, `allocation`, `extras`.
 - Currency: `("USD","SAR")` whitelists in `app._budget`, `_beginner_args` and the `Budget` type. GBp/pence (London) and other minor units are not handled anywhere.
 - Time:
@@ -224,18 +243,26 @@ The core refactor (config and all call sites) is **M** (about 2–4 days). Each 
 
 ## 7. Top 10 feature wishes (ranked by value ÷ effort)
 
-| # | What | Who it helps | Effort | Free data only? |
-|---|---|---|---|---|
-| 1 | **Index-fund path for beginners**: a "simplest option" card with a broad ETF (e.g. an S&P 500 ETF; a Saudi or MSCI Saudi ETF), analysed with fundamentals skipped as crypto is | Every beginner | S | Yes |
-| 2 | **Cost-vs-budget warning**: "this analysis costs ~1.9% of your amount; try Haiku or economy mode" | Small budgets | S | Yes |
-| 3 | **One spend ledger** fed by a shared usage tracker for every LLM call (translate, ask, Albie, lesson, tests), checked before each paid call | Anyone with a cap | S–M | Yes |
-| 4 | **Per-market config** (§5), with the analysis date in the market's own time zone and a per-market open/closed chip | Global users, Saudi users today | M | Yes |
-| 5 | **Fees and cash buffer in the plan** (per-market fee fields, broker minimums), and whole-share *lots* where needed | Anyone buying for real | S | Yes (fees entered by the user) |
-| 6 | **Risk-aware sizing**: inverse-volatility weights, sector cap, correlation warning, and the 40% cap for 1–2 picks too | Active investors | M | Yes |
-| 7 | **Fixed-horizon track record** (5 and 20 days) with a Wilson interval and n ≥ 30 before showing a headline hit rate | Everyone deciding whether to trust the team | S | Yes |
-| 8 | **Exchange holiday calendars** and the quote's real timestamp everywhere | Everyone | S–M | Yes (exchange sites, `pandas_market_calendars`) |
-| 9 | **Dividends and total return** in the virtual portfolio and trust dashboard | Saudi income investors especially | M | Yes (yfinance dividends) |
-| 10 | **"How to buy this" step**: a broker-agnostic checklist (order type, limit vs market, T+2/T+1, fees), with an optional Sharia-compliant broker/fund note | First-time buyers | S | Yes |
+All ten were built in the second round except #4, which the owner decided against; the markets were fixed in place instead.
+
+| # | What | Who it helps | Effort | Free data only? | Status |
+|---|---|---|---|---|---|
+| 1 | Index-fund path for beginners | Every beginner | S | Yes | Done, `6c8737c` (a card, no analysis; not run through the framework) |
+| 2 | Cost-vs-budget warning | Small budgets | S | Yes | Done, `6c8737c` |
+| 3 | One spend ledger for every model call | Anyone with a cap | S–M | Yes | Done, `84e7a9d` |
+| 4 | Per-market config | A third market | M | Yes | **Not built (owner decision)**; the market bugs were fixed in place, `5328c31` |
+| 5 | Fees in the plan | Anyone buying for real | S | Yes (fees entered by the user) | Done, `bb1169f`; trading lots not needed for Tadawul/US |
+| 6 | Risk-aware sizing | Active investors | M | Yes | Done, `bb1169f` |
+| 7 | Fixed-horizon track record with uncertainty | Everyone | S | Yes | Done, `1441abe` |
+| 8 | Holiday calendars and honest quote time | Everyone | S–M | Yes | Done, `5328c31` (`exchange_calendars`) |
+| 9 | Dividends and total return | Income investors | M | Yes | Done in the virtual portfolio, `f2c57de`; the trust dashboard stays price vs price index (consistent on both sides) |
+| 10 | "How to buy this" step | First-time buyers | S | Yes | Done, `6c8737c` (broker-neutral; no broker is named or rated) |
+
+**Next wishes, not built:**
+- A Saudi market scan: Yahoo's predefined screeners are US-only, and a custom `EquityQuery` for Tadawul can't be tested here.
+- Value/quality pre-screen factors.
+- Moving inline Arabic/English strings into the dictionary before any third language.
+- `Intl` currency formatting for new currencies.
 
 ---
 
@@ -250,8 +277,13 @@ The core refactor (config and all call sites) is **M** (about 2–4 days). Each 
 - [ ] Set a small cap (e.g. $0.50), start a watchlist of 3: the second session must not start once the reservation passes the cap.
 - [ ] Remove the Anthropic key in Settings, then try a session: it must say "no key" at once (fix #8).
 - [ ] Morning report on a Sunday with Saudi favourites (fix #11).
-- [ ] Desktop: kill `python.exe` at start-up, then close the error splash and relaunch; confirm whether Veyro reappears (finding #18, not fixed).
-- [ ] Desktop: kill the Electron process; confirm whether `python.exe` stays alive (finding #18).
+- [ ] Desktop: make `python.exe` fail at start-up; the error screen must show a Close button, closing it must end Veyro, and a relaunch must open again (fix #18).
+- [ ] Desktop: kill the Electron process in Task Manager; `python.exe` must exit within a few seconds (fix #18 watchdog; Windows path not run here).
+- [ ] Holidays: on a Tadawul or US holiday, the header shows that market closed (`exchange_calendars` must be installed: re-run `pip install -r backend/requirements.txt` on an existing install).
+- [ ] 9412.SR, SPYM and VT quotes on Yahoo: the index-fund card shows prices (else "unavailable").
+- [ ] Enter your broker's real fees in Settings → Broker fees and check one plan's fee against your broker's own calculator.
+- [ ] Dividends in the virtual portfolio for a Saudi dividend payer (e.g. 2222.SR) after an ex-date.
+- [ ] Settings → model price for a non-Claude model: after one session, the month's spend includes it.
 - [ ] PDF export in Arabic and English (print dialog → Save as PDF).
 - [ ] Read-aloud voices on Windows for Arabic and English.
 - [ ] Alpaca Paper: propose → confirm → fill, and that nothing submits without confirm.
@@ -262,13 +294,25 @@ The core refactor (config and all call sites) is **M** (about 2–4 days). Each 
 
 ## 9. Test counts
 
-| Suite | Before | After |
-|---|---|---|
-| Backend pytest (`backend/tests`) | 42 passed | **93 passed** (+18 regression tests in `test_review_fixes.py`, +33 in `test_sharia.py`) |
-| e2e `ui_test` | 12 PASS | 12 PASS |
-| e2e `new_feats` | 14 PASS | 14 PASS (alert check made deterministic) |
-| e2e `round3` | 5 PASS | 5 PASS (glossary 98 → 101 terms) |
-| e2e `review_fixes` (new) | — | 20 PASS |
-| TypeScript `tsc --noEmit` and `npm run build` | OK | OK |
+| Suite | Baseline | After round 1 | After round 2 |
+|---|---|---|---|
+| Backend pytest (`backend/tests`) | 42 passed | 93 passed | **121 passed** (`test_review_fixes.py`, `test_sharia.py`, `test_allocation_risk.py`) |
+| e2e `ui_test` | 12 PASS | 12 PASS | 12 PASS |
+| e2e `new_feats` | 14 PASS | 14 PASS | 14 PASS |
+| e2e `round3` | 5 PASS | 5 PASS | 5 PASS |
+| e2e `review_fixes` (new) | — | 20 PASS | 20 PASS |
+| e2e `round4` (new) | — | — | 14 PASS |
+| TypeScript `tsc --noEmit` and `npm run build` | OK | OK | OK |
 
-Totals: pytest **42 → 93**, browser checks **31 → 51**, 0 failures in the final run (`tools/e2e/run_all.sh`, 2026-09-25).
+Totals:
+- pytest: **42 → 93 → 121**.
+- Browser checks: **31 → 51 → 65**, 0 failures (`tools/e2e/run_all.sh`).
+
+In round 2, two older e2e selectors had to follow deliberate UI additions:
+- the economy option gained a second select (the pre-screen method);
+- the trust dashboard gained a fifth tile (20-day hit rate).
+
+Some existing unit tests were also updated for intended behaviour changes, each noted in its commit:
+- a single pick now gets 40%;
+- trust is scored at fixed horizons;
+- Labor Day is skipped when counting sessions.

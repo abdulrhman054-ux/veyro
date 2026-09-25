@@ -42,7 +42,7 @@ with sync_playwright() as p:
     for tk in ["AAPL","MSFT","KO","NVDA"]:
         i=pg.locator(".startbar .tsearch input").first; i.fill(tk); i.press("Enter")
     pg.locator(".startbar label.check", has_text="اقتصادي").locator("input").check()
-    pg.locator(".startbar label.check", has_text="اقتصادي").locator("select").select_option("2")
+    pg.locator(".startbar label.check", has_text="اقتصادي").locator("select").first.select_option("2")
     pg.locator(".startbar button.primary").click(); pg.wait_for_timeout(1500)
     check("economy prescreen shown", pg.locator("text=الفحص المجاني").count()>0)
     check("only 2 go to full analysis", pg.locator(".side .board-rank").first.locator("li").count()==2, str(pg.locator(".side .board-rank").first.locator("li").count()))
