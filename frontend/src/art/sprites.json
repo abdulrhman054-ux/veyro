@@ -1,0 +1,439 @@
+{
+  "_doc": "Veyro original pixel sprites. 24x26 grid: head rows 0-15, body rows 16-25. Head rows of 12 chars are mirrored to 24. Letters map to colors via palette (global + per character). '.' = transparent.",
+  "size": [
+    24,
+    26
+  ],
+  "palette": {
+    "o": "#4A3426",
+    "k": "#2B1D14",
+    "w": "#FFFFFF",
+    "p": "#F4A3A8",
+    "n": "#4E5D8C",
+    "s": "#3A2B20",
+    "B": "#F7CE4F"
+  },
+  "bodies": {
+    "down": [
+      ".......oooooooooo.......",
+      "......oSSSSSSSSSSo......",
+      ".....oSSSSSSSSSSSSo.....",
+      "....oSoSSSSSSSSSSoSo....",
+      "....oSoSSSSBBSSSSoSo....",
+      "....oFoSSSSSSSSSSoFo....",
+      ".....ooSSSSSSSSSSoo.....",
+      "......onnnnnnnnnno......",
+      "......onnnnoonnnno......",
+      "......ossso..ossso......"
+    ],
+    "typeA": [
+      ".......oooooooooo.......",
+      "......oSSSSSSSSSSo......",
+      ".....oSSSSSSSSSSSSo.....",
+      "....oSoSSSSSSSSSSoSo....",
+      "....oSSoSSSBBSSSoSSo....",
+      ".....oFFoSSSSSSoFFo.....",
+      "......ooSSSSSSSSoo......",
+      "......onnnnnnnnnno......",
+      "......onnnnoonnnno......",
+      "......ossso..ossso......"
+    ],
+    "typeB": [
+      ".......oooooooooo.......",
+      "......oSSSSSSSSSSo......",
+      ".....oSSSSSSSSSSSSo.....",
+      "....oSoSSSSSSSSSSoSo....",
+      "....oSSoSSSBBSSSoFFo....",
+      ".....oFFoSSSSSSSoo......",
+      "......ooSSSSSSSSo.......",
+      "......onnnnnnnnnno......",
+      "......onnnnoonnnno......",
+      "......ossso..ossso......"
+    ],
+    "wave": [
+      "..oFo..oooooooooo.......",
+      "..oSo.oSSSSSSSSSSo......",
+      "...oSoSSSSSSSSSSSSo.....",
+      "....ooSSSSSSSSSSSoSo....",
+      "......oSSSSBBSSSSoSo....",
+      "......oSSSSSSSSSSoFo....",
+      "......oSSSSSSSSSSoo.....",
+      "......onnnnnnnnnno......",
+      "......onnnnoonnnno......",
+      "......ossso..ossso......"
+    ],
+    "walkA": [
+      ".......oooooooooo.......",
+      "......oSSSSSSSSSSo......",
+      ".....oSSSSSSSSSSSSo.....",
+      "....oSoSSSSSSSSSSoSo....",
+      "....oSoSSSSBBSSSSoSo....",
+      "....oFoSSSSSSSSSSoFo....",
+      ".....ooSSSSSSSSSSoo.....",
+      "......onnnnnnnnnno......",
+      ".....onnnno..onnnno.....",
+      "....ossso......ossso...."
+    ],
+    "walkB": [
+      ".......oooooooooo.......",
+      "......oSSSSSSSSSSo......",
+      ".....oSSSSSSSSSSSSo.....",
+      "....oSoSSSSSSSSSSoSo....",
+      "....oSoSSSSBBSSSSoSo....",
+      "....oFoSSSSSSSSSSoFo....",
+      ".....ooSSSSSSSSSSoo.....",
+      "......onnnnnnnnnno......",
+      ".......onnnoonnno.......",
+      "........osssssso........"
+    ]
+  },
+  "characters": {
+    "Ollie": {
+      "animal": "owl",
+      "color": "#3F7FE0",
+      "lid": "#F3E2BE",
+      "mouth": [
+        11,
+        12,
+        2
+      ],
+      "colors": {
+        "H": "#8B6B4A",
+        "h": "#F3E2BE",
+        "G": "#4C8DFF",
+        "Y": "#F2A43A",
+        "S": "#8FC1EC",
+        "F": "#8B6B4A"
+      },
+      "head": [
+        "..oo........",
+        "..oHo.......",
+        "..oHHooooooo",
+        "..oHHHHHHHHH",
+        ".oHHHHHHHHHH",
+        ".oHGGGGGGHHH",
+        "oHGhhhhhhGGG",
+        "oHGhhkwhhGHH",
+        "oHGhhkkhhGHH",
+        "oHGhhhhhhGHH",
+        "oHHGGGGGGHHY",
+        "oHphhhhhhhYY",
+        "oHpphhhhhhhY",
+        ".oHhhhhhhhhh",
+        "..oHHHHHHHHH",
+        "...ooooooooo"
+      ]
+    },
+    "Pip": {
+      "animal": "parrot",
+      "color": "#E0453A",
+      "lid": "#FFF4EC",
+      "mouth": [
+        11,
+        11,
+        2
+      ],
+      "colors": {
+        "H": "#E0453A",
+        "h": "#FFF4EC",
+        "W": "#D9C4A0",
+        "K": "#3A2B20",
+        "S": "#F7CE4F",
+        "B": "#3F7FE0",
+        "F": "#3F7FE0"
+      },
+      "head": [
+        "..........oo",
+        ".........oHH",
+        "....ooooooHH",
+        "...oHHHHHHHH",
+        "..oHHHHHHHHH",
+        ".oHHhhhhHHHH",
+        ".oHhhhhhhHHH",
+        "oHHhhkwhhHHH",
+        "oHHhhkkhhHWW",
+        "oHHhhhhhHWWW",
+        "oHHphhhHHWWK",
+        "oHHppHHHHHWK",
+        ".oHHHHHHHHKK",
+        ".oHHHHHHHHHH",
+        "..oHHHHHHHHH",
+        "...ooooooooo"
+      ]
+    },
+    "Buzz": {
+      "animal": "bee",
+      "color": "#C98F12",
+      "lid": "#F7CE4F",
+      "mouth": [
+        11,
+        11,
+        2
+      ],
+      "stripes": true,
+      "colors": {
+        "H": "#F7CE4F",
+        "K": "#3A2B20",
+        "W": "#CDEBFA",
+        "S": "#F7CE4F",
+        "T": "#3A2B20",
+        "B": "#FFFFFF",
+        "F": "#F7CE4F"
+      },
+      "head": [
+        "...ooo......",
+        "...oKo......",
+        "....o..ooooo",
+        ".....ooHHHHH",
+        "....oHHHHHHH",
+        "...oKKKKKKKK",
+        "..oHHHHHHHHH",
+        ".oHHHHHHHHHH",
+        ".oHHHkwHHHHH",
+        ".oHHHkkHHHHH",
+        "WoHpHHHHHHHH",
+        "WoHppHHHHHHK",
+        "WWoHHHHHHHHH",
+        ".WoHHHHHHHHH",
+        "..ooHHHHHHHH",
+        "....oooooooo"
+      ]
+    },
+    "Benny": {
+      "animal": "beaver",
+      "color": "#A5683E",
+      "lid": "#A5683E",
+      "mouth": [
+        11,
+        10,
+        2
+      ],
+      "colors": {
+        "H": "#A5683E",
+        "h": "#E8C9A0",
+        "K": "#3A2B20",
+        "S": "#7FB77E",
+        "F": "#A5683E"
+      },
+      "head": [
+        "..ooo.......",
+        ".oHhHooooooo",
+        ".oHHHHHHHHHH",
+        "..oHHHHHHHHH",
+        ".oHHHHHHHHHH",
+        ".oHHHHHHHHHH",
+        "oHHHHkwHHHHH",
+        "oHHHHkkHHHHH",
+        "oHHHHHHHhhhh",
+        "oHHpphhhhhhK",
+        "oHHpphhhhhhh",
+        "oHHHHhhhhhhw",
+        ".oHHHHhhhhow",
+        ".oHHHHHHHHow",
+        "..oHHHHHHHoo",
+        "...ooooooooo"
+      ]
+    },
+    "Bolt": {
+      "animal": "bull",
+      "color": "#27A05E",
+      "lid": "#8B5A3C",
+      "mouth": [
+        11,
+        12,
+        2
+      ],
+      "colors": {
+        "H": "#8B5A3C",
+        "h": "#EBC3A4",
+        "C": "#FFF3DC",
+        "E": "#6E4430",
+        "K": "#3A2B20",
+        "Y": "#F7CE4F",
+        "S": "#27A05E",
+        "F": "#8B5A3C"
+      },
+      "head": [
+        "C...........",
+        "CC..........",
+        "oCC..ooooooo",
+        ".oCCoHHHHHHH",
+        "..oCHHHHHHHH",
+        ".oHHHHHHHHHH",
+        "oEHHHHHHHHHH",
+        "oHHHHkwHHHHH",
+        "oHHHHkkHHHHH",
+        ".oHpHHHHHHHH",
+        ".oHpphhhhhhh",
+        "..ohhhKhhhhh",
+        "..ohhhhhhhhh",
+        "...ohhhhhhYh",
+        "....oohhhhYh",
+        "......oooooY"
+      ]
+    },
+    "Bruno": {
+      "animal": "bear",
+      "color": "#D9573F",
+      "lid": "#7A5236",
+      "mouth": [
+        11,
+        12,
+        2
+      ],
+      "colors": {
+        "H": "#7A5236",
+        "h": "#D9B48A",
+        "K": "#2B1D14",
+        "S": "#D9573F",
+        "F": "#7A5236"
+      },
+      "head": [
+        ".ooo........",
+        "oHhHo.......",
+        "oHhHoooooooo",
+        ".oHHHHHHHHHH",
+        ".oHHHHHHHHHH",
+        "oHHHHHHHHHHH",
+        "oHHHHooHHHHH",
+        "oHHHHkwHHHHH",
+        "oHHHHkkHHHHH",
+        "oHHHHHHHhhhh",
+        "oHppHHhhhhKK",
+        "oHppHhhhhhhK",
+        ".oHHHHhhhhhh",
+        ".oHHHHHhhhhh",
+        "..oHHHHHHHHH",
+        "...ooooooooo"
+      ]
+    },
+    "Tank": {
+      "animal": "turtle",
+      "color": "#4F7F3C",
+      "lid": "#8FCB6B",
+      "mouth": [
+        11,
+        11,
+        2
+      ],
+      "colors": {
+        "H": "#8FCB6B",
+        "Y": "#F7CE4F",
+        "G": "#5E8C4A",
+        "g": "#9CC77A",
+        "S": "#F3E2A0",
+        "B": "#E0A34A",
+        "F": "#8FCB6B"
+      },
+      "head": [
+        ".....ooooooo",
+        "...ooYYYYYYY",
+        "..oYYYwYYYYY",
+        ".oYYYYYYYYYY",
+        "oooooooooooo",
+        ".oHHHHHHHHHH",
+        "oHHHHHHHHHHH",
+        "oHHHHkwHHHHH",
+        "oHHHHkkHHHHH",
+        "oHHHHHHHHHHH",
+        "oHppHHHHHHHH",
+        "oHppHHHHHHoo",
+        ".oHHHHHHHHHH",
+        "..oHHHHHHHHH",
+        "...ooHHHHHHH",
+        ".....ooooooo"
+      ],
+      "back": {
+        "row": 15,
+        "rows": [
+          ".....oooooooooooooo.....",
+          "...ooGGGgggGGgggGGGoo...",
+          "..oGGgggGGGGGGGGgggGGo..",
+          "..oGgggGGGGGGGGGGgggGo..",
+          "..oGGgGGGGGGGGGGGGgGGo..",
+          "..oGGGGgggGGGGgggGGGGo..",
+          "...ooGGGGGGGGGGGGGGoo...",
+          ".....oooooooooooooo....."
+        ]
+      }
+    },
+    "Leo": {
+      "animal": "lion",
+      "color": "#E08A1E",
+      "lid": "#F7C66B",
+      "mouth": [
+        11,
+        12,
+        2
+      ],
+      "colors": {
+        "H": "#F7C66B",
+        "h": "#FFF1D6",
+        "M": "#D9702A",
+        "Y": "#F7CE4F",
+        "R": "#E0453A",
+        "K": "#4A3426",
+        "S": "#8A5CC7",
+        "F": "#F7C66B"
+      },
+      "head": [
+        ".......Y...Y",
+        ".......YY.YY",
+        "....oooYYYYY",
+        "..ooMMMYYYYR",
+        ".oMMMMMMMMMM",
+        "oMMMMHHHHHHH",
+        "oMMMHHHHHHHH",
+        "oMMHHHkwHHHH",
+        "oMMHHHkkHHHH",
+        "oMMHpHHHHhhh",
+        "oMMHppHHhhhK",
+        "oMMMHHHhhhhK",
+        ".oMMHHHhhhhh",
+        ".oMMMHHHHHHH",
+        "..oMMMMMMMMM",
+        "...ooooooooo"
+      ]
+    },
+    "Albie": {
+      "animal": "albatross",
+      "color": "#2F6FB0",
+      "lid": "#F7F7F2",
+      "mouth": [
+        9,
+        11,
+        6
+      ],
+      "colors": {
+        "H": "#F7F7F2",
+        "h": "#D9DCE0",
+        "G": "#5B6470",
+        "Y": "#F2C27A",
+        "O": "#E08A6A",
+        "C": "#8B5A3C",
+        "L": "#7FC8E8",
+        "S": "#2F4A7A",
+        "B": "#C98B55",
+        "F": "#F7F7F2"
+      },
+      "head": [
+        "....oooooooo",
+        "...oCCCCCCCC",
+        "..oCLLLoCCCC",
+        ".oCoLLLoCCCC",
+        ".oCCoooCCCCC",
+        "oCCHHHHHHHHH",
+        "oCHHHHHHHHHH",
+        "oHHGGkwHHHHH",
+        "oHHHGkkHHHHH",
+        "oHHHHHHHHYYY",
+        "oHphHHHHYYYY",
+        "oHpphHHHYYYY",
+        ".oHHHHHHHYYO",
+        ".oHHHHHHHHOO",
+        "..oHHHHHHHHH",
+        "...ooooooooo"
+      ]
+    }
+  }
+}

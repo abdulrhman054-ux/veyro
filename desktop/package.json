@@ -1,0 +1,32 @@
+{
+  "name": "veyro",
+  "productName": "Veyro",
+  "version": "1.1.0",
+  "description": "Veyro, the AI council office (TradingAgents inside)",
+  "main": "main.js",
+  "author": "Veyro",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win dir portable"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.veyro.app",
+    "productName": "Veyro",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "build/icon.png", "package.json"],
+    "asar": true,
+    "extraResources": [
+      { "from": "runtime/python", "to": "python" },
+      { "from": "../backend", "to": "backend", "filter": ["veyro/**/*", "!**/__pycache__/**"] },
+      { "from": "../frontend/dist", "to": "frontend/dist" },
+      { "from": "../third_party", "to": "third_party" }
+    ],
+    "win": { "target": ["dir", "portable"], "icon": "build/icon.png" },
+    "portable": { "artifactName": "Veyro-Portable.exe", "requestExecutionLevel": "user" }
+  }
+}

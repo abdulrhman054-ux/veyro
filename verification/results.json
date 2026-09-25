@@ -1,0 +1,329 @@
+{
+  "results": [
+    {
+      "check": "RTL layout in Arabic",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "office mood driven by real SPY close",
+      "ok": true,
+      "detail": "room mood-flat"
+    },
+    {
+      "check": "Albie links world news to the stock before the verdict",
+      "ok": true,
+      "detail": "['Ollie', 'Buzz', 'Pip', 'Benny', 'Bolt', 'Bruno', 'Leo', 'Tank', 'Albie', 'Leo']"
+    },
+    {
+      "check": "all 8 characters spoke, in the framework's order",
+      "ok": true,
+      "detail": "['Ollie', 'Buzz', 'Pip', 'Benny', 'Bolt', 'Bruno', 'Leo', 'Tank', 'Albie', 'Leo']"
+    },
+    {
+      "check": "verdict shown with rating",
+      "ok": true,
+      "detail": "شراء"
+    },
+    {
+      "check": "verdict shows disclaimer",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "verdict price comes from data or says unavailable",
+      "ok": true,
+      "detail": "بب تجريبي\nقوة القناعة:\nمتوسطة\n· السعر وقت القرار:\n‏224.58 US$\nافتح التقرير\nتحليل للمساعدة على التفكير، وليس نصيحة مالية."
+    },
+    {
+      "check": "report lists every turn",
+      "ok": true,
+      "detail": "11"
+    },
+    {
+      "check": "report shows the framework's key figures and session setup",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "framework report export (ZIP of TradingAgents markdown reports)",
+      "ok": true,
+      "detail": "['complete_report.md', '1_analysts/fundamentals.md', '1_analysts/market.md', '1_analysts/news.md', '1_analysts/sentiment.md', '2_research/bear.md']"
+    },
+    {
+      "check": "ask the team: a character answers in the report",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "favourites strip shows the starred stock",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "morning report starts a scan of favourites",
+      "ok": true,
+      "detail": "{'scan_id': '240d25d09829'}"
+    },
+    {
+      "check": "alerts panel shows Leo's morning-report alert",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "connection test reports the key and both models working",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "any model ID can be chosen (custom model saved)",
+      "ok": true,
+      "detail": "claude-haiku-4-5"
+    },
+    {
+      "check": "daily assistant settings present",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "English screen contains no Arabic text",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "RTL off in English",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "history saved the session",
+      "ok": true,
+      "detail": "NVDA\trunning\tSep 25, 2026, 9:29 AM\tUnavailable\tUnavailable\t—\tSPY —\t—\tIgnored\t"
+    },
+    {
+      "check": "History shows Bruno's learning card",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "History shows the framework's decision memory and backtest",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "framework memory lists this session's decision",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "World News shows real headlines from major publishers",
+      "ok": true,
+      "detail": "['BBC Business', 'Bloomberg', 'Bloomberg Economics', 'CNBC', 'Financial Times', 'MarketWatch', 'Reuters', 'The Economist']"
+    },
+    {
+      "check": "World News shows live market tiles (incl. TASI)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "World News in English has no Arabic text",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "night theme applied",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "settings shows masked key",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "full key never in page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "scan ranking shown for both tickers",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "advanced settings list the framework's extra providers (incl. local Ollama) and reasoning depth",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "office offers point-in-time analysis date",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "absent analysts shown on a break (Buzz by choice, Benny for crypto)",
+      "ok": true,
+      "detail": "['Benny', 'Buzz']"
+    },
+    {
+      "check": "no horizontal scroll at phone width",
+      "ok": true,
+      "detail": "[390, 390]"
+    },
+    {
+      "check": "prefers-reduced-motion stops animations",
+      "ok": true,
+      "detail": "none"
+    },
+    {
+      "check": "execution is Off by default",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "paper without keys uses clearly labelled Mock",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "market order filled via full UI flow",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "limit order accepted and open",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "limit order cancelled",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "max-per-order limit blocks the ticket",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "per-symbol exposure limit blocks the ticket",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "orders-per-day limit blocks the ticket",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "daily-loss limit blocks new orders",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "backend rejects over-limit ticket (no token issued)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "backend refuses short selling",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "backend refuses non market/limit order types",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "confirm without explicit confirm=true is refused",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "cross-origin / scripted POST blocked",
+      "ok": true,
+      "detail": "403"
+    },
+    {
+      "check": "kill switch cancelled open orders and set mode Off",
+      "ok": true,
+      "detail": "open_before=1"
+    },
+    {
+      "check": "Live unlock button disabled without keys/limits",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "backend refuses Live without keys",
+      "ok": true,
+      "detail": "{'ok': False, 'code': 'no_live_keys', 'character': 'Pip', 'data': {}}"
+    },
+    {
+      "check": "audit log records 'proposed'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "audit log records 'confirmed'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "audit log records 'submitted'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "audit log records 'filled'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "audit log records 'rejected'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "audit log records 'cancel_requested'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "audit log records 'cancelled'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "audit log records 'kill_switch'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "audit log records 'mode_changed'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "audit log records 'limits_saved'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "closed market: market order refused, limit offered",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "API key never in HTTP responses, WebSocket frames or server logs",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "check": "zero browser console errors",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

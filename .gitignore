@@ -1,0 +1,25 @@
+# secrets
+.env
+.env.*
+!.env.example
+# local data
+data/
+*.db
+# python
+.venv/
+__pycache__/
+*.pyc
+# node
+frontend/node_modules/
+# keep frontend/dist: the built interface ships with the app so no Node is needed to run it
+# tooling
+.claude/
+verification/**/*.webm
+verification/data/
+verification/*.log
+verification/server_log*.txt
+verification_run.log
+desktop/node_modules/
+desktop/runtime/
+desktop/dist/
+*.zip
