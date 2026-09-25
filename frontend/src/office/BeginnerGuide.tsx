@@ -7,7 +7,9 @@ import { BudgetPlan, money, type Plan } from "./BudgetPlan";
 
 type Guide = { profile: { amount: number; currency: string; market: string; risk: string }; plan: Plan;
   intro: string | null; closing: string | null; stocks: { ticker: string; simple: string }[];
-  tips: { character: CharKey; tip: string }[]; generated: boolean };
+  tips: { character: CharKey; tip: string }[]; generated: boolean;
+  market_tips?: { character: CharKey; tip: string; market: string }[];
+  markets?: Record<string, { open: boolean; name: { ar: string; en: string }; hours: { ar: string; en: string } }> };
 
 /** After a beginner run: Leo's whole-share plan for the amount, what the team found in plain words,
  *  and one practical tip from each character's expertise. */
@@ -60,6 +62,22 @@ export function BeginnerGuide({ scanId, onOpen, onClose }: { scanId: string; onO
               </div>
             ))}
           </section>
+          {g.markets && Object.entries(g.markets).map(([k, m]) => (
+            <section key={k} className="card cream stack" style={{ gap: 8, padding: 14 }}>
+              <b style={{ fontSize: 17 }}>{ar ? `قبل ما تشتري من ${m.name.ar}` : `Before you buy on the ${m.name.en}`}</b>
+              <span className={`chip mkt ${m.open ? "open" : "closed"}`} style={{ alignSelf: "flex-start", height: "auto", minHeight: 30, whiteSpace: "normal" }}>
+                <i />{m.open ? (ar ? "مفتوح الآن" : "Open now") : (ar ? "مقفل الآن" : "Closed now")} · {m.hours[lang]}</span>
+              {(g.market_tips ?? []).filter((tp) => tp.market === k).map((tp, i) => (
+                <div key={i} className="row tip" style={{ alignItems: "flex-start", flexWrap: "nowrap", gap: 10 }}>
+                  <SpriteSvg name={tp.character} px={1} />
+                  <div className="stack" style={{ gap: 2 }}>
+                    <b style={{ color: charColor(tp.character) }}>{charName(tp.character, lang)}</b>
+                    <span style={{ lineHeight: 1.8 }}>{tp.tip}</span>
+                  </div>
+                </div>
+              ))}
+            </section>
+          ))}
           {g.closing && <p style={{ margin: 0, lineHeight: 1.8, fontWeight: 700 }}>{g.closing}</p>}
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>{t.disclaimer}</p>
         </>}

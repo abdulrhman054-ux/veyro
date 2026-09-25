@@ -668,6 +668,7 @@ def _framework_cfg() -> dict:
                 "backend_url": relay_url() if provider == "anthropic" else None,
                 "output_language": "English", "max_debate_rounds": team["debate_rounds"],
                 "max_risk_discuss_rounds": team["risk_rounds"], **runner.reasoning_config(provider),
+                "benchmark_map": runner.benchmark_map(),
                 "results_dir": str(TA_HOME / "logs"), "data_cache_dir": str(TA_HOME / "cache"),
                 "memory_log_path": str(TA_HOME / "memory" / "trading_memory.md")})
     return cfg

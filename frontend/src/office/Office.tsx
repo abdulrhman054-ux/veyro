@@ -82,15 +82,18 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
   const [bPicks, setBPicks] = useState<BPick[] | null>(null);
   const [bChosen, setBChosen] = useState<Set<string>>(new Set());
   const [bLoading, setBLoading] = useState(false);
+  const [bMarkets, setBMarkets] = useState<Record<string, { open: boolean; name: { ar: string; en: string }; hours: { ar: string; en: string } }> | null>(null);
   useEffect(() => { setBPicks(null); }, [bMarket, bRisk, bCount, budgetText, budgetCur]);
+  // The amount follows the chosen market's currency (both markets: keep whatever the owner picked).
+  useEffect(() => { if (mode === "beginner" && bMarket !== "both") setBudgetCur(bMarket === "sa" ? "SAR" : "USD"); }, [bMarket, mode]);
   async function suggestBeginner() {
     setErr(null);
     if (!budget) { setErr(lang === "ar" ? "اكتب المبلغ اللي معك أول (مثلاً 1000)." : "Enter the amount you have first (e.g. 1000)."); return; }
     setBLoading(true);
     try {
-      const r = await api.post<{ picks: BPick[]; prices_available: boolean }>("/api/beginner/suggest",
+      const r = await api.post<{ picks: BPick[]; prices_available: boolean; markets: typeof bMarkets }>("/api/beginner/suggest",
         { amount: budget.amount, currency: budget.currency, market: bMarket, risk: bRisk, count: bCount });
-      setBPicks(r.picks); setBChosen(new Set(r.picks.map((x) => x.symbol)));
+      setBPicks(r.picks); setBChosen(new Set(r.picks.map((x) => x.symbol))); setBMarkets(r.markets);
       if (!r.picks.length) setErr(r.prices_available
         ? (lang === "ar" ? "المبلغ ما يكفي لسهم واحد من الشركات المقترحة. جرّب مبلغ أكبر أو سوق ثاني." : "The amount doesn't cover one share of the suggested companies. Try a larger amount or another market.")
         : (lang === "ar" ? "أسعار السوق غير متوفرة الآن. جرّب بعد شوي." : "Market prices are unavailable right now. Try again shortly."));
@@ -402,6 +405,16 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
                 </label>
               ))}
               <span className="muted" style={{ fontSize: 12 }}>{lang === "ar" ? "أسعار Yahoo الحالية · للتعلّم وليس نصيحة مالية" : "Current Yahoo prices · for learning, not financial advice"}</span>
+            </div>
+          )}
+          {bPicks && bMarkets && (
+            <div className="row" style={{ gap: 8 }}>
+              {Object.entries(bMarkets).map(([k, m]) => (
+                <span key={k} className={`chip mkt ${m.open ? "open" : "closed"}`} style={{ height: "auto", minHeight: 30, whiteSpace: "normal" }}>
+                  <i /><b>{m.name[lang]}</b> · {m.open ? (lang === "ar" ? "مفتوح الآن" : "open now") : (lang === "ar" ? "مقفل الآن" : "closed now")}
+                  <span className="muted" style={{ fontSize: 12 }}>· {m.hours[lang]}</span>
+                </span>
+              ))}
             </div>
           )}
         </div>

@@ -53,6 +53,61 @@ UNIVERSE = {
 }
 
 
+# What a beginner needs to know about the market they chose. Regular hours only (holidays not included).
+MARKETS = {
+    "sa": {"name": {"ar": "السوق السعودي (تداول)", "en": "Saudi market (Tadawul)"}, "currency": "SAR", "tz": "Asia/Riyadh",
+           "days": (6, 0, 1, 2, 3), "open": (10, 0), "close": (15, 0), "benchmark": "^TASI.SR",
+           "hours": {"ar": "الأحد إلى الخميس، 10:00 الصبح إلى 3:00 العصر بتوقيت السعودية",
+                     "en": "Sunday to Thursday, 10:00 to 15:00 Saudi time"},
+           "tips": [
+               ("Pip", "تحتاج محفظة استثمارية عند وسيط مرخّص من هيئة السوق المالية، وتقدر تفتحها من تطبيق بنكك غالباً.",
+                "You need an investment account with a broker licensed by the Capital Market Authority; most Saudi banks' apps offer one."),
+               ("Tank", "التداول من الأحد للخميس. الأوامر اللي تحطها بعد الإغلاق تتنفذ بجلسة اليوم الجاي.",
+                "Trading runs Sunday to Thursday; orders placed after the close wait for the next session."),
+               ("Benny", "أسعار تداول بالريال، فما فيه تحويل عملة ولا رسومه. انتبه لعمولة الوسيط على كل صفقة.",
+                "Prices are in riyals, so no currency conversion or its fees; mind the broker's commission on each trade."),
+               ("Ollie", "نقارن أداء الأسهم بمؤشر تاسي (السوق كله)، عشان تعرف هل السهم أحسن من السوق أو لا.",
+                "We compare each stock with TASI (the whole market) to see whether it beat the market."),
+           ]},
+    "us": {"name": {"ar": "السوق الأمريكي", "en": "US market"}, "currency": "USD", "tz": "America/New_York",
+           "days": (0, 1, 2, 3, 4), "open": (9, 30), "close": (16, 0), "benchmark": "SPY",
+           "hours": {"ar": "الاثنين إلى الجمعة، من العصر إلى الليل بتوقيت السعودية (9:30 إلى 4:00 بتوقيت نيويورك)",
+                     "en": "Monday to Friday, 9:30 to 16:00 New York time (afternoon to night in Saudi time)"},
+           "tips": [
+               ("Pip", "تحتاج وسيط يتيح الأسهم الأمريكية؛ كثير من الوسطاء السعوديين يوفرونها.",
+                "You need a broker that offers US stocks; many Saudi brokers do."),
+               ("Benny", "الأسعار بالدولار، فالوسيط يحوّل من الريال. شوف رسوم التحويل والعمولة لأنها تأثر على المبالغ الصغيرة.",
+                "Prices are in dollars, so your riyals get converted; check the conversion fee and commission, they matter on small amounts."),
+               ("Tank", "السوق يفتح الاثنين للجمعة ويقفل السبت والأحد، يعني يختلف عن أيام تداول.",
+                "The market trades Monday to Friday and is closed on weekends, unlike Tadawul."),
+               ("Ollie", "نقارن أداء الأسهم بمؤشر S&P 500 عن طريق SPY.",
+                "We compare each stock with the S&P 500 (via SPY)."),
+           ]},
+}
+
+
+def market_status(market_id: str) -> dict:
+    """Open/closed by regular hours in the market's own time zone (holidays not included)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    out = {}
+    for m in (["sa", "us"] if market_id == "both" else [market_id]):
+        info = MARKETS[m]
+        now = datetime.now(ZoneInfo(info["tz"]))
+        open_ = now.weekday() in info["days"] and info["open"] <= (now.hour, now.minute) < info["close"]
+        out[m] = {"open": open_, "name": info["name"], "hours": info["hours"]}
+    return out
+
+
+def market_tips(market_id: str, lang: str) -> list[dict]:
+    ms = ["sa", "us"] if market_id == "both" else [market_id]
+    tips = []
+    for m in ms:
+        for c, ar, en in MARKETS[m]["tips"]:
+            tips.append({"character": c, "tip": ar if lang == "ar" else en, "market": m})
+    return tips
+
+
 def _ordered(market_id: str, risk: str) -> list[tuple]:
     markets = ["sa", "us"] if market_id == "both" else [market_id if market_id in UNIVERSE else "sa"]
     lists = []
@@ -108,7 +163,8 @@ def suggest(amount: float, currency: str, market_id: str, risk: str, count: int)
                           "price": px["price"], "currency": px["currency"], "price_in_budget": round(cost, 2)})
         if len(picks) >= count:
             break
-    return {"picks": picks, "prices_available": any(prices.values()), "source": market.SOURCE}
+    return {"picks": picks, "prices_available": any(prices.values()), "source": market.SOURCE,
+            "markets": market_status(market_id)}
 
 
 # ---------------------------------------------------------------- the lesson
@@ -143,19 +199,20 @@ def guide(scan_id: str, lang: str) -> dict:
         return {"ok": False, "code": "not_found"}
     plan = allocation.plan(scan["sessions"], prof["amount"], prof["currency"])
     tips = [{"character": c, "tip": ar if lang == "ar" else en} for c, (ar, en) in STATIC_TIPS.items()]
-    base = {"profile": prof, "plan": plan, "tips": tips, "stocks": [], "intro": None, "closing": None, "generated": False}
+    base = {"profile": prof, "plan": plan, "tips": tips, "stocks": [], "intro": None, "closing": None, "generated": False,
+            "market_tips": market_tips(prof.get("market", "sa"), lang), "markets": market_status(prof.get("market", "sa"))}
     if scan.get("mode") == "demo" or not any(s.get("status") == "done" for s in scan["sessions"]):
         return base
     cached = db.get_setting(f"beginner_guide:{scan_id}:{lang}")
     if cached:
-        return {**base, **cached, "plan": plan}
+        return {**base, **cached, "plan": plan, "market_tips": base["market_tips"], "markets": base["markets"]}
     try:
         g = _mentor(scan, prof, plan, lang)
     except Exception as e:  # noqa: BLE001
         log.info("beginner lesson failed: %s", type(e).__name__)
         return base
     db.set_setting(f"beginner_guide:{scan_id}:{lang}", g)
-    return {**base, **g, "plan": plan}
+    return {**base, **g, "plan": plan, "market_tips": base["market_tips"], "markets": base["markets"]}
 
 
 def _mentor(scan: dict, prof: dict, plan: dict, lang: str) -> dict:
@@ -180,6 +237,8 @@ def _mentor(scan: dict, prof: dict, plan: dict, lang: str) -> dict:
         "You are the mentor voice of a cosy pixel-art office of animal analysts (TradingAgents). A BEGINNER investor told us "
         f"their budget ({prof['amount']} {prof['currency']}), market ({prof['market']}) and comfort with risk ({prof['risk']}). "
         "The team analysed a few beginner-friendly large companies. Explain the result to a total beginner.\n"
+        f"The chosen market: {', '.join(MARKETS[m]['name']['en'] for m in (['sa', 'us'] if prof['market'] == 'both' else [prof['market']]))}. "
+        "Keep every tip relevant to that market (its currency, trading days, benchmark index); never mention another market's specifics.\n"
         "Hard rules: use ONLY the session notes and the plan below for anything about these stocks; add no new facts, numbers, "
         "prices or predictions; keep every risk the notes mention; explain any finance word in simple terms; general beginner "
         "education (diversification, time horizon, fees, emergency fund, no borrowing) is allowed. Say it is not financial advice.\n"

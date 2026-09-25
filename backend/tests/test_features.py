@@ -114,3 +114,22 @@ def test_cancellable_stream_stops_immediately():
     with pytest.raises(runner._Cancelled):
         next(it)
     assert time.time() - t0 < 1.5
+
+
+def test_saudi_stocks_benchmark_against_tasi():
+    assert runner.benchmark_for("2222.SR") == "^TASI.SR"
+    assert runner.benchmark_for("AAPL") == "SPY"
+
+
+def test_beginner_market_tips_follow_market():
+    assert {t["market"] for t in beginner.market_tips("us", "ar")} == {"us"}
+    assert {t["market"] for t in beginner.market_tips("both", "en")} == {"sa", "us"}
+    assert set(beginner.market_status("sa")) == {"sa"}
+
+
+def test_small_budget_leftover_buys_whole_shares(monkeypatch):
+    px = {"KO": 68.0, "PG": 165.0, "NVDA": 130.0}
+    monkeypatch.setattr(market, "last_price", lambda t: {"price": px[t], "currency": "USD"} if t in px else None)
+    p = allocation.plan([sess(t, t, "Buy") for t in px], 300, "USD")
+    got = {r["ticker"]: r["shares"] for r in p["rows"]}
+    assert got["KO"] == 1 and got["PG"] == 1 and p["cash_left"] == 67.0

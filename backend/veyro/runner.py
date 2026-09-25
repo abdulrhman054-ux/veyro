@@ -209,9 +209,19 @@ def analysts_for(asset_type: str, analysts: list[str]) -> list[str]:
     return out or ["market"]
 
 
+# The framework's benchmark map has no Saudi entry, so Tadawul stocks would be scored against SPY.
+# Veyro adds TASI for ".SR" (passed to the framework too, so its settled alpha uses the same index).
+EXTRA_BENCHMARKS = {".SR": "^TASI.SR"}
+
+
+def benchmark_map() -> dict:
+    from tradingagents.default_config import DEFAULT_CONFIG
+    return {**EXTRA_BENCHMARKS, **DEFAULT_CONFIG.get("benchmark_map", {})}
+
+
 def benchmark_for(ticker: str) -> str:
     from tradingagents.default_config import DEFAULT_CONFIG
-    bm = DEFAULT_CONFIG.get("benchmark_map", {})
+    bm = benchmark_map()
     for suffix, idx in bm.items():
         if suffix and ticker.upper().endswith(suffix.upper()):
             return idx
@@ -476,6 +486,7 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                 "max_debate_rounds": team["debate_rounds"], "max_risk_discuss_rounds": team["risk_rounds"],
                 "checkpoint_enabled": True,  # a stopped or crashed run resumes from its last finished step
                 **reasoning_config(provider),
+                "benchmark_map": benchmark_map(),
                 "results_dir": str(TA_HOME / "logs"), "data_cache_dir": str(TA_HOME / "cache"),
                 "memory_log_path": str(TA_HOME / "memory" / "trading_memory.md")})
     tracker = UsageTracker()
