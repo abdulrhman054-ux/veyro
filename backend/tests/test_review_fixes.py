@@ -257,3 +257,12 @@ def test_morning_report_runs_on_tadawul_sunday_not_friday(monkeypatch):
     assert not assistant.morning_due(friday)
     monkeypatch.setattr(assistant, "favorites", lambda: ["AAPL"])
     assert not assistant.morning_due(sunday.astimezone(ZoneInfo("America/New_York")))
+
+
+
+def test_beginner_guide_covers_settlement_limits_horizon_and_index_funds():
+    sa = " ".join(t["tip"] for t in beginner.market_tips("sa", "en"))
+    us = " ".join(t["tip"] for t in beginner.market_tips("us", "en"))
+    assert "T+2" in sa and "10%" in sa and "T+1" in us and "7%, 13% or 20%" in us
+    static = " ".join(en for _, en in beginner.STATIC_TIPS.values())
+    assert "emergency fund" in static and "long run" in static and "index fund" in static

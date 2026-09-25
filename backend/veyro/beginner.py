@@ -68,6 +68,10 @@ MARKETS = {
                 "Prices are in riyals, so no currency conversion or its fees; mind the broker's commission on each trade."),
                ("Ollie", "نقارن أداء الأسهم بمؤشر تاسي (السوق كله)، عشان تعرف هل السهم أحسن من السوق أو لا.",
                 "We compare each stock with TASI (the whole market) to see whether it beat the market."),
+               ("Tank", "سعر السهم في تداول ما يتحرك في اليوم أكثر من 10٪ فوق أو تحت إغلاق أمس (حد التذبذب اليومي).",
+                "On Tadawul a share can't move more than 10% above or below yesterday's close in one day (the daily price limit)."),
+               ("Benny", "الصفقة تتسوّى بعد يومي عمل (T+2): الأسهم والفلوس تنتقل رسمياً بعد يومين من التنفيذ.",
+                "Trades settle two business days later (T+2): shares and cash formally change hands two days after the trade."),
            ]},
     "us": {"name": {"ar": "السوق الأمريكي", "en": "US market"}, "currency": "USD", "tz": "America/New_York",
            "days": (0, 1, 2, 3, 4), "open": (9, 30), "close": (16, 0), "benchmark": "SPY",
@@ -82,6 +86,9 @@ MARKETS = {
                 "The market trades Monday to Friday and is closed on weekends, unlike Tadawul."),
                ("Ollie", "نقارن أداء الأسهم بمؤشر S&P 500 عن طريق SPY.",
                 "We compare each stock with the S&P 500 (via SPY)."),
+               ("Tank", "ما فيه حد يومي ثابت للسعر، لكن التداول يتوقف شوي إذا السهم تحرك بسرعة كبيرة، ويتوقف السوق كله إذا نزل مؤشر S&P 500 بنسبة 7٪ أو 13٪ أو 20٪ في يوم.",
+                "There's no fixed daily price limit, but a stock pauses briefly if it moves too fast, and the whole market halts if the S&P 500 falls 7%, 13% or 20% in a day."),
+               ("Benny", "الصفقة تتسوّى بعد يوم عمل واحد (T+1).", "Trades settle one business day later (T+1)."),
            ]},
 }
 
@@ -195,6 +202,10 @@ STATIC_TIPS = {
               "Always ask what could go wrong, and decide before buying how much loss you can stand."),
     "Pip": ("انتبه للرسوم: عمولة الوسيط تاكل من المبالغ الصغيرة، فقلّل عدد مرات البيع والشراء.",
             "Watch the fees: broker commissions eat into small amounts, so trade less often."),
+    "Bolt": ("الأسهم للمدى الطويل: الفلوس اللي بتحتاجها خلال سنوات قليلة (سيارة، زواج، دفعة بيت) الأفضل ما تكون في الأسهم.",
+             "Stocks are for the long run: money you'll need within a few years (a car, a wedding, a home deposit) is better kept out of them."),
+    "Buzz": ("صندوق مؤشرات منخفض التكلفة (ETF) يشتري لك السوق كله دفعة وحدة، وهو بداية أبسط لكثير من المبتدئين من اختيار أسهم مفردة.",
+             "A low-cost index fund (ETF) buys the whole market in one go; for many beginners it's a simpler start than picking single stocks."),
 }
 
 
