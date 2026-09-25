@@ -14,6 +14,7 @@ import { useLineText } from "./lineText";
 import { AskTeam, FavoritesStrip, StarButton, useAssistant } from "../assistant/Assistant";
 import { TICKER, TickerSearch } from "../components/TickerSearch";
 import { moodFrom } from "./mood";
+import { sceneOf, toneOf, type SceneId } from "./scenes";
 import type { History } from "../api";
 
 type Mode = "single" | "watchlist" | "scan" | "beginner";
@@ -257,6 +258,14 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
   useEffect(() => { if (preview) setChosen(new Set(preview.map((c) => c.symbol))); }, [preview]);
 
   const isDemo = state.mode === "demo" || (!sessionId && demo);
+  // Which set we're on follows what is playing now (not what the server has already finished):
+  // the line on screen, else the next queued line, else the step the team just started.
+  const scene: SceneId = !sessionId ? "office"
+    : state.verdictShown && state.verdict ? "decision"
+    : sceneOf(state.current?.node, true) ?? sceneOf(state.queue[0]?.node) ?? sceneOf(state.lastNode) ?? "office";
+  const heat = scene === "debate" ? state.debateLines + (state.current && sceneOf(state.current.node) === "debate" ? 1 : 0) : 0;
+  const speakTone = state.current && state.current.kind !== "error" ? toneOf(state.current.texts?.[lang] ?? state.current.text) : null;
+  const verdictTone = state.verdictShown && state.verdict ? (RATING[state.verdict.rating]?.tone ?? null) : null;
   const verdictExtra = sessionId && state.verdict && state.ticker && renderVerdictExtra
     ? renderVerdictExtra(sessionId, state.ticker, state.verdict.rating, state.mode === "demo") : null;
   const SESSION: CharKey[] = [...CHAR_ORDER.slice(0, 7), "Albie", "Leo"];   // speaking order in a session
@@ -418,7 +427,9 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
       <div className="office">
         <Stage>
           <RoomScene ticker={state.ticker} market={state.market ?? (sessionId ? null : spy)} marketLoaded={state.marketLoaded}
-            demo={isDemo} agents={state.agents} lang={lang} starting={starting} mood={mood} marketOpen={marketOpen}>
+            demo={isDemo} agents={state.agents} lang={lang} starting={starting} mood={mood} marketOpen={marketOpen}
+            scene={state.ended && !state.verdict && !state.current ? "office" : scene} heat={heat} verdictTone={verdictTone === "none" ? null : verdictTone}
+            speakTone={speakTone}>
             {state.current ? <SpeechBox key={state.current.id} line={state.current} lang={lang} onDone={next} />
               : state.verdictShown && state.verdict ? <VerdictBox v={state.verdict} lang={lang} demo={state.mode === "demo"} sessionId={sessionId} onOpenReport={() => sessionId && onOpenReport(sessionId)} extra={verdictExtra} />
               : !sessionId ? <IdleBox lang={lang} text={demo ? `${t.welcome} ${t.welcomeDemo}` : t.welcome} />

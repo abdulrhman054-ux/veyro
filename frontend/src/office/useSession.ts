@@ -29,6 +29,8 @@ export type SessionState = {
   portfolioBroker: string | null;
   stopping: boolean;          // Stop pressed: waiting for the backend's confirmation
   thinkingSince: number | null;  // when the current "someone is working" stretch began (for the waiting box)
+  lastNode: string | null;       // the framework step most recently started (drives the stage when nobody speaks)
+  debateLines: number;           // bull/bear lines played so far: the debate heats up with each exchange
 };
 
 const ALL: CharKey[] = ["Ollie", "Pip", "Buzz", "Benny", "Bolt", "Bruno", "Tank", "Leo", "Albie"];
@@ -38,7 +40,7 @@ export const initial: SessionState = {
   id: null, ticker: null, mode: null, tradeDate: null, estimate: null, market: null, marketLoaded: false,
   agents: idleAgents(), queue: [], current: null, log: [], verdict: null, verdictShown: false,
   usage: null, ended: false, status: null, error: null, rethinking: [], assetType: null, portfolioUsed: false,
-  portfolioBroker: null, stopping: false, thinkingSince: null,
+  portfolioBroker: null, stopping: false, thinkingSince: null, lastNode: null, debateLines: 0,
 };
 
 type Action =
@@ -83,7 +85,8 @@ function reducer(s: SessionState, a: Action): SessionState {
       const log = done.kind === "speech" || done.kind === "verdict" ? [done, ...s.log] : s.log;
       const [head, ...rest] = s.queue;
       if (head && head.kind !== "error") agents[head.character] = "speaking";
-      return { ...s, agents, log, rethinking, current: head ?? null, queue: rest };
+      const debateLines = s.debateLines + (done.node === "Bull Researcher" || done.node === "Bear Researcher" ? 1 : 0);
+      return { ...s, agents, log, rethinking, current: head ?? null, queue: rest, debateLines };
     }
     case "event": {
       const ev = a.ev;
@@ -105,6 +108,7 @@ function reducer(s: SessionState, a: Action): SessionState {
           if (s.stopping) return s;
           const c = ev.character as CharKey;
           const since = s.thinkingSince ?? Date.now();
+          s = { ...s, lastNode: ev.node };
           if (s.current?.character === c || s.queue.some((l) => l.character === c))
             return { ...s, rethinking: [...s.rethinking, c], thinkingSince: since };
           return { ...s, agents: { ...s.agents, [c]: "thinking" }, thinkingSince: since };
