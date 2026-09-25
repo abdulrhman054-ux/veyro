@@ -20,11 +20,15 @@ const DATA = !IS_PACKED ? path.join(__dirname, "..", "data")
   : path.join(BASE_DIR, "Veyro-Data");
 const ICON = path.join(__dirname, "build", "icon.png");
 
-let win = null, splash = null, tray = null, backend = null, port = 8765, quitting = false, toldTray = false, exitCode = null;
+let win = null, splash = null, tray = null, backend = null, port = 8765, quitting = false, toldTray = false, exitCode = null, fatal = false;
 
 const GOT_LOCK = app.requestSingleInstanceLock();
 if (!GOT_LOCK) { app.quit(); }
-app.on("second-instance", () => { if (win) { win.show(); win.focus(); } });
+app.on("second-instance", () => {
+  if (win) { win.show(); win.focus(); return; }
+  if (splash) { splash.show(); splash.focus(); return; }
+  if (fatal) { app.relaunch(); quitAll(); }   // the first start failed and its error window is gone: start over
+});
 app.setAppUserModelId("com.veyro.app");   // Windows notifications come from "Veyro"
 
 function freePort(start) {
@@ -55,7 +59,7 @@ async function startBackend() {
     cwd: BACKEND, windowsHide: true,
     // Bytecode ships precompiled (tools/build_desktop.py); never try to write .pyc into the install folder.
     env: { ...process.env, VEYRO_PORT: String(port), VEYRO_DATA_DIR: DATA, PYTHONUTF8: "1", PYTHONNOUSERSITE: "1", PYTHONIOENCODING: "utf-8",
-           PYTHONDONTWRITEBYTECODE: "1" },
+           PYTHONDONTWRITEBYTECODE: "1", VEYRO_PARENT_PID: String(process.pid) },   // the backend exits if this app dies
   });
   backend.stdout.pipe(log); backend.stderr.pipe(log);
   // If Python stops before a window exists, remember why; boot() shows it as soon as the splash is up.
@@ -82,22 +86,31 @@ function splashHtml() {
   <style>@keyframes m{from{transform:translateX(-120%)}to{transform:translateX(300%)}}</style></body></html>`);
 }
 
+function quitAll() { quitting = true; stopBackend(); app.quit(); }
+
 function showFatal(code) {
+  fatal = true;
+  stopBackend();   // a backend that is alive but too slow must not keep running hidden
   const html = "data:text/html;charset=utf-8," + encodeURIComponent(`<!doctype html><html dir="rtl"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#FBF6E9;font-family:Tahoma,sans-serif;color:#5C4331;text-align:center">
   <div><div style="font-size:28px;font-weight:800">صار خلل في تشغيل المكتب</div><div style="margin-top:8px">Veyro's engine stopped (${code}). Close and open Veyro again.</div>
-  <div style="margin-top:8px;font-size:13px;color:#7A6147">Veyro-Data/veyro-server.log</div></div></body></html>`);
-  if (win) win.loadURL(html); else if (splash) splash.loadURL(html);
+  <div style="margin-top:8px;font-size:13px;color:#7A6147">Veyro-Data/veyro-server.log</div>
+  <button onclick="window.close()" style="margin-top:16px;font:inherit;padding:8px 22px;border-radius:12px;border:0;background:#F2A43A;color:#fff;cursor:pointer">إغلاق · Close</button></div></body></html>`);
+  const w = win || splash;
+  if (!w) return;
+  w.loadURL(html);
+  w.removeAllListeners("close");
+  w.on("closed", quitAll);   // closing the error window ends Veyro (no hidden process holding the single-instance lock)
 }
 
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
   tray.setToolTip("Veyro · فيرو");
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "فتح فيرو · Open Veyro", click: () => { win.show(); win.focus(); } },
+    { label: "فتح فيرو · Open Veyro", click: () => { if (win) { win.show(); win.focus(); } } },
     { type: "separator" },
     { label: "خروج · Quit", click: () => { quitting = true; app.quit(); } },
   ]));
-  tray.on("click", () => { win.show(); win.focus(); });
+  tray.on("click", () => { if (win) { win.show(); win.focus(); } });
 }
 
 async function boot() {
@@ -135,4 +148,4 @@ async function boot() {
 const backendReady = GOT_LOCK ? startBackend() : Promise.resolve(false);
 if (GOT_LOCK) app.whenReady().then(boot);
 app.on("before-quit", () => { quitting = true; stopBackend(); });
-app.on("window-all-closed", () => { /* stay in tray */ });
+app.on("window-all-closed", () => { if (fatal || !tray) quitAll(); /* otherwise stay in the tray */ });

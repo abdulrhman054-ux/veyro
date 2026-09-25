@@ -413,3 +413,20 @@ def test_quote_time_says_close_when_the_market_is_shut():
     assert calendars.quote_time("2222.SR", sat) == {"as_of": "2026-09-24", "is_close": True}   # Tadawul's last day: Thursday
     live = calendars.quote_time("AAPL", datetime(2026, 9, 25, 15, 0, tzinfo=timezone.utc))      # 11:00 New York, Friday
     assert live["is_close"] is False
+
+
+def test_backend_watchdog_exits_when_the_parent_dies():
+    import subprocess
+    import sys
+    import time
+    parent = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    code = "import os,time,sys; sys.path.insert(0,'.'); from veyro import watchdog; watchdog.start(0.2); time.sleep(20); print('still here')"
+    child = subprocess.Popen([sys.executable, "-c", code], env={**__import__("os").environ, "VEYRO_PARENT_PID": str(parent.pid)},
+                             stdout=subprocess.PIPE, text=True)
+    time.sleep(0.6)
+    assert child.poll() is None          # parent alive: keeps running
+    parent.kill(); parent.wait()
+    t0 = time.time()
+    while child.poll() is None and time.time() - t0 < 5:
+        time.sleep(0.1)
+    assert child.poll() == 0 and "still here" not in (child.stdout.read() or "")
