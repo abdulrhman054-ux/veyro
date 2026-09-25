@@ -72,6 +72,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
   };
   const [screeners, setScreeners] = useState<Record<string, { ar: string; en: string }>>({});
   const [preview, setPreview] = useState<Candidate[] | null>(null);
+  const narrow = useNarrow();
   const shHidden = useShariaHidden(preview?.map((c) => c.symbol) ?? []);   // optional Sharia screen: "hide non-compliant"
   const [previewState, setPreviewState] = useState<"idle" | "loading" | "none">("idle");
   const hasKey = !!settings && settings.keys[settings.provider]?.present;
@@ -357,6 +358,14 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
   // (also when that session ended in an error or the scan was stopped).
   const scanDone = !!scan?.done && !!scan.ranking && (scan.stopped || scanIdx === scan.sessions.length - 1) && finishedShowing;
 
+  // On a phone the 1000 px stage is scaled to about a third, so its text would be ~7 px: there the dialogue and the
+  // verdict are shown under the stage at normal size (rendered once, so typing, sounds and read-aloud don't double).
+  const dialog = state.current ? <SpeechBox key={state.current.id} line={state.current} lang={lang} onDone={next} />
+    : state.verdictShown && state.verdict ? <VerdictBox v={state.verdict} lang={lang} demo={state.mode === "demo"} sessionId={sessionId} ticker={state.ticker} onOpenReport={() => sessionId && onOpenReport(sessionId)} extra={verdictExtra} />
+    : !sessionId ? <IdleBox lang={lang} text={demo ? `${t.welcome} ${t.welcomeDemo}` : t.welcome} />
+    : !state.ended ? <WaitBox lang={lang} agents={state.agents} since={state.thinkingSince} stopping={state.stopping} loaded={state.id != null} />
+    : <EndedBox lang={lang} status={state.status} />;
+
   return (
     <>
       <div className="startbar" role="group" aria-label={t.start}>
@@ -588,13 +597,10 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
             marketOpen={(state.ticker ?? "").toUpperCase().endsWith(".SR") ? (marketsOpen?.sa.open ?? null) : usOpen}
             scene={state.ended && !state.verdict && !state.current ? "office" : scene} heat={heat} verdictTone={verdictTone === "none" ? null : verdictTone}
             speakTone={speakTone}>
-            {state.current ? <SpeechBox key={state.current.id} line={state.current} lang={lang} onDone={next} />
-              : state.verdictShown && state.verdict ? <VerdictBox v={state.verdict} lang={lang} demo={state.mode === "demo"} sessionId={sessionId} ticker={state.ticker} onOpenReport={() => sessionId && onOpenReport(sessionId)} extra={verdictExtra} />
-              : !sessionId ? <IdleBox lang={lang} text={demo ? `${t.welcome} ${t.welcomeDemo}` : t.welcome} />
-              : !state.ended ? <WaitBox lang={lang} agents={state.agents} since={state.thinkingSince} stopping={state.stopping} loaded={state.id != null} />
-              : <EndedBox lang={lang} status={state.status} />}
+            {narrow ? null : dialog}
           </RoomScene>
         </Stage>
+        {narrow && <div className="mobile-caption">{dialog}</div>}
 
         <aside className="side" aria-label={t.minutes}>
           {scan && (
@@ -771,4 +777,17 @@ function Ranking({ scan, onOpen, onClose }: { scan: ScanView; onOpen: (id: strin
 
 function fmtTime(iso: string, lang: string) {
   return new Intl.DateTimeFormat(lang === "ar" ? "ar-SA-u-nu-latn-ca-gregory" : "en-US", { timeStyle: "short" }).format(new Date(iso));
+}
+
+/** True on phone-width screens (under 700 px). */
+function useNarrow() {
+  const q = "(max-width: 700px)";
+  const [n, setN] = useState(() => { try { return matchMedia(q).matches; } catch { return false; } });
+  useEffect(() => {
+    const m = matchMedia(q);
+    const f = () => setN(m.matches);
+    m.addEventListener("change", f);
+    return () => m.removeEventListener("change", f);
+  }, []);
+  return n;
 }

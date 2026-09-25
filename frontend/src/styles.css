@@ -719,3 +719,19 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
 .term-pop { position: absolute; z-index: 80; top: calc(100% + 6px); inset-inline-start: 0; width: min(300px, 80vw); background: var(--card); color: var(--ink);
   border: 2px solid var(--line); border-radius: 14px; padding: 10px 12px; font-size: 14px; font-weight: 500; line-height: 1.7; box-shadow: 0 5px 0 var(--shade), 0 12px 26px rgba(0,0,0,.18); white-space: normal; }
 @media print { .term-btn { border: 0; } .term-pop { display: none; } }
+
+/* Phone width: the dialogue and verdict live under the (scaled) stage at a readable size. */
+.mobile-caption { position: relative; margin-top: 22px; }
+.mobile-caption .dlg { position: relative; left: auto; right: auto; top: auto; bottom: auto; width: auto; min-height: 0; max-height: none;
+  padding: 24px 18px 18px; border-radius: 22px; animation: none; }
+.mobile-caption .dlg .tag { font-size: 15px; top: -14px; inset-inline-start: 16px; padding: 2px 12px; }
+.mobile-caption .dlg .dtext { font-size: 17px; line-height: 1.7; min-height: 0; }
+.mobile-caption .dlg .dtext.scroll { max-height: 320px; }
+.mobile-caption .dlg .next { bottom: 8px; inset-inline-end: 18px; }
+.mobile-caption .verdict-word { font-size: 34px; }
+.mobile-caption .verdict-box .conf { display: none; }
+
+/* Settings: quick jumps to each section (mostly useful on a phone, where the sections stack into a long page). */
+.settings-jump { gap: 6px; flex-wrap: wrap; }
+.settings-jump a { text-decoration: none; color: inherit; cursor: pointer; }
+@media (min-width: 1181px) { .settings-jump { display: none; } }

@@ -93,6 +93,12 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
       <PageHeader host="Ollie" title={lang === "ar" ? "الإعدادات" : "Settings"}
         sub={lang === "ar" ? "الأساسيات هنا وبسيطة، والمتقدم مطوي تحت لمن يحتاجه. أولي يشرح لك بهدوء." : "The basics are here and simple; advanced options are folded below. Ollie explains, calmly."}
         say={lang === "ar" ? "خلوني أوضح لكم…" : "Let me walk you through it…"} />
+      <nav className="settings-jump row" aria-label={lang === "ar" ? "أقسام الإعدادات" : "Settings sections"}>
+        {([["s-model", t.modelAndKey], ["fees-h", lang === "ar" ? "الرسوم" : "Fees"], ["s-sharia", lang === "ar" ? "الفحص الشرعي" : "Sharia"],
+          ["s-look", t.lookAndSound], ["s-about", t.about]] as const).map(([id, label]) => (
+          <a key={id} className="chip mkt" href={`#${id}`} onClick={(e) => { e.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>{label}</a>
+        ))}
+      </nav>
       <div className="grid3">
         <section className="card stack" aria-labelledby="s-model">
           <h2 id="s-model" style={{ fontSize: 22 }}>{t.modelAndKey}</h2>

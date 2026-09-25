@@ -58,7 +58,7 @@ export function OrdersScreen({ onOpenSettings, active = true }: { onOpenSettings
     <div className="stack" style={{ gap: 18 }}>
       <PageHeader host="Tank" title={d.orders} side={<ModeBadge big />}
         sub={lang === "ar" ? "كل أمر هنا يحتاج تأكيدك. تانك يحرس حدود المخاطرة، وبيب يبلغك إذا تنفّذ شي." : "Every order here needs your confirmation. Tank guards the risk limits and Pip tells you when something fills."}
-        say={lang === "ar" ? "أفحص حدود المخاطرة…" : "Checking the risk limits…"}
+        say={off ? (lang === "ar" ? "التنفيذ مقفل، كل شي هادي." : "Execution is off. All quiet.") : (lang === "ar" ? "أفحص حدود المخاطرة…" : "Checking the risk limits…")}
         extra={off ? [] : [{ name: "Pip", say: lang === "ar" ? "أراقب التنفيذات!" : "Watching for fills!" }]} />
       {off && (
         <section className="card cream row" style={{ gap: 16, flexWrap: "nowrap" }}>
