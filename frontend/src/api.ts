@@ -48,6 +48,7 @@ export type Settings = {
   team: { analysts: string[]; debate_rounds: number; risk_rounds: number };
   data_keys: Record<"fred" | "alpha_vantage" | "typesafe", { present: boolean; masked: string | null }>;
   sharia?: { enabled: boolean; method: string; hide: boolean; methods?: Record<string, { ar: string; en: string }> };
+  broker_fees?: Record<"sa" | "us", { rate: number; min: number; vat: number; set: boolean }>;
 };
 export type History = { available: boolean; ticker?: string; dates?: string[]; closes?: number[]; source?: string };
 export type PriceInfo = { price: number | null; spy: number | null; as_of: string | null; source: string | null };

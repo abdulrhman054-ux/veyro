@@ -47,9 +47,10 @@ def test_plan_caps_concentration_at_40_percent():
 
 
 def test_plan_converts_currency():
-    p = allocation.plan([sess("a", "2280.SR", "Buy")], 375, "USD")   # $375 = 1406 SAR -> 25 shares at 55 SAR
+    p = allocation.plan([sess("a", "2280.SR", "Buy")], 375, "USD")   # $375 = 1406 SAR; 40% cap = 562 SAR -> 10 shares at 55
     r = p["rows"][0]
-    assert r["shares"] == 25 and r["price_currency"] == "SAR" and r["cost"] <= 375
+    assert r["shares"] == 10 and r["price_currency"] == "SAR" and r["cost"] <= 375 * 0.4 + 0.01
+    assert "few_picks" in p["notes"]
 
 
 def test_plan_no_positive_calls_keeps_cash():

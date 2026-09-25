@@ -121,6 +121,17 @@ def history(ticker: str, period: str = "3mo") -> dict | None:
     return _cached(f"hist:{src}:{ticker}:{period}", 600, fetch)
 
 
+def sector(ticker: str) -> str | None:
+    """Yahoo's sector name for a company (for the plan's sector cap), cached for a day. None when unknown."""
+    def fetch():
+        try:
+            return (yf.Ticker(ticker).info or {}).get("sector") or None
+        except Exception as e:  # noqa: BLE001
+            log.info("sector unavailable for %s: %s", ticker, type(e).__name__)
+            return None
+    return _cached(f"sector:{ticker}", 86400, fetch)
+
+
 def close_on_or_before(ticker: str, date_iso: str) -> float | None:
     """Closing price on the given date or the last trading day before it."""
     from datetime import date

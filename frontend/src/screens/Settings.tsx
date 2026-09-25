@@ -168,6 +168,7 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
             ? "السريع: للمحللين والنقاش وكلام الشخصيات (أغلب الاستهلاك). العميق: لقرار ليو وخطة الاستثمار. تقدر تختار أي نموذج في الخانتين."
             : "Quick: analysts, debate and the characters' lines (most of the usage). Deep: Leo's decision and investment plan. Any model works in either slot."}</p>
           <BudgetCap settings={settings} onChange={onChange} lang={lang} />
+          <BrokerFees settings={settings} onChange={onChange} lang={lang} />
           <div className="toggle"><span>{t.estimate}</span>
             <span className="pixel ltr">{e.known && e.low != null && e.high != null ? `${fmtUsd(e.low, lang)} – ${fmtUsd(e.high, lang)}` : t.unknownPrice}</span></div>
         </section>
@@ -355,6 +356,42 @@ function BudgetCap({ settings, onChange, lang }: { settings: Settings; onChange:
           {sp.unpriced_sessions > 0 && <span className="muted">{ar ? ` (${sp.unpriced_sessions} جلسة فيها نموذج سعره غير معروف: انحسب الجزء المعروف فقط، فالسقف ما يحميك كامل مع هالمزوّد)` : ` (${sp.unpriced_sessions} sessions used a model with an unknown price: only the priced part is counted, so the cap can't fully protect you with that provider)`}</span>}</span>
       </>}
       <span className="muted" style={{ fontSize: 12 }}>{ar ? "لما يوصل الصرف للسقف، ما تبدأ جلسات مدفوعة جديدة (الوضع التجريبي يبقى متاح). المسح يوقف عند السقف." : "Once spending reaches the cap no new paid session starts (demo still works); scans stop at the cap."}</span>
+      {msg && <span style={{ fontSize: 13 }}>{msg}</span>}
+    </div>
+  );
+}
+
+/** The owner's broker fees per market, used by Leo's plan. Veyro doesn't guess them: until entered, the plan says so. */
+function BrokerFees({ settings, onChange, lang }: { settings: Settings; onChange: (s: Settings) => void; lang: "ar" | "en" }) {
+  const ar = lang === "ar";
+  const f = settings.broker_fees;
+  const [edit, setEdit] = useState<Record<string, { rate: string; min: string; vat: string }>>(() => Object.fromEntries((["sa", "us"] as const).map((m) => [m, {
+    rate: f?.[m]?.set ? String(+(f[m].rate * 100).toFixed(4)) : "", min: f?.[m]?.set ? String(f[m].min) : "", vat: f?.[m]?.set ? String(+(f[m].vat * 100).toFixed(2)) : "" }])));
+  const [msg, setMsg] = useState<string | null>(null);
+  const save = async (m: "sa" | "us") => {
+    const e = edit[m];
+    const rate = Number(e.rate || 0) / 100, minimum = Number(e.min || 0), vat = Number(e.vat || 0) / 100;
+    if (![rate, minimum, vat].every((x) => x >= 0 && Number.isFinite(x))) { setMsg(ar ? "اكتب أرقام صحيحة." : "Enter valid numbers."); return; }
+    try { onChange(await api.put<Settings>("/api/fees", { market: m, rate, minimum, vat })); setMsg(ar ? "انحفظ ✓" : "Saved ✓"); }
+    catch { setMsg(ar ? "ما انحفظ (تأكد إن النسبة أقل من 5٪)." : "Not saved (the rate must be under 5%)."); }
+  };
+  const set = (m: string, k: "rate" | "min" | "vat", v: string) => { setEdit((x) => ({ ...x, [m]: { ...x[m], [k]: v } })); setMsg(null); };
+  return (
+    <div className="stack" style={{ gap: 6, padding: 10, borderRadius: 16, background: "var(--cream)" }} aria-labelledby="fees-h">
+      <b id="fees-h">{ar ? "رسوم الوسيط (لخطة ليو)" : "Broker fees (for Leo's plan)"}</b>
+      <span className="muted" style={{ fontSize: 12, lineHeight: 1.6 }}>{ar
+        ? "اكتبها من جدول رسوم وسيطك. ما نخمّنها: إذا ما كتبتها، الخطة تقول إنها ما تشمل الرسوم."
+        : "Copy them from your broker's fee schedule. We don't guess: if left empty, the plan says fees aren't included."}</span>
+      {(["sa", "us"] as const).map((m) => (
+        <div key={m} className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          <b style={{ minWidth: 70 }}>{m === "sa" ? (ar ? "السعودي" : "Saudi") : (ar ? "الأمريكي" : "US")}</b>
+          <input className="field ltr" style={{ width: 90, height: 36 }} inputMode="decimal" placeholder="%" aria-label={ar ? "العمولة ٪" : "Commission %"} value={edit[m].rate} onChange={(e) => set(m, "rate", e.target.value)} />
+          <input className="field ltr" style={{ width: 90, height: 36 }} inputMode="decimal" placeholder={m === "sa" ? (ar ? "حد أدنى ريال" : "min SAR") : "min $"} aria-label={ar ? "الحد الأدنى" : "Minimum"} value={edit[m].min} onChange={(e) => set(m, "min", e.target.value)} />
+          <input className="field ltr" style={{ width: 80, height: 36 }} inputMode="decimal" placeholder={ar ? "ضريبة ٪" : "VAT %"} aria-label={ar ? "ضريبة القيمة المضافة ٪" : "VAT %"} value={edit[m].vat} onChange={(e) => set(m, "vat", e.target.value)} />
+          <button className="ghost btn mini" onClick={() => void save(m)}>{ar ? "حفظ" : "Save"}</button>
+          {f?.[m]?.set && <span className="muted" style={{ fontSize: 12 }}>✓</span>}
+        </div>
+      ))}
       {msg && <span style={{ fontSize: 13 }}>{msg}</span>}
     </div>
   );

@@ -147,6 +147,7 @@ def settings_payload() -> dict:
         "data_keys": {k: {"present": bool(get_secret(f"data:{k}")), "masked": mask(get_secret(f"data:{k}"))}
                       for k in ("fred", "alpha_vantage", "typesafe")},
         "sharia": {**sharia.settings(), "methods": {k: v["name"] for k, v in sharia.METHODS.items()}},
+        "broker_fees": __import__("veyro.allocation", fromlist=["x"]).fees(),
     }
 
 
@@ -1157,6 +1158,24 @@ def price_alerts_add(a: PriceAlertIn):
 def price_alerts_delete(aid: int):
     from . import extras
     return {"alerts": extras.delete_price_alert(aid)}
+
+
+# ---------------------------------------------------------------- broker fees (entered by the owner; never guessed)
+class FeesIn(BaseModel):
+    market: str
+    rate: float = 0.0      # fraction of the trade value, e.g. 0.00155
+    minimum: float = 0.0   # in the market's currency
+    vat: float = 0.0       # e.g. 0.15
+
+
+@app.put("/api/fees")
+def put_fees(f: FeesIn):
+    from . import allocation
+    try:
+        allocation.save_fees(f.market, f.rate, f.minimum, f.vat)
+    except ValueError:
+        raise HTTPException(400, "bad_fees") from None
+    return settings_payload()
 
 
 # ---------------------------------------------------------------- optional Sharia screen

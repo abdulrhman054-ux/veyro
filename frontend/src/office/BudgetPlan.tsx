@@ -9,10 +9,12 @@ import { AddToPaper } from "../extras/Paper";
 type Names = { ar: string; en: string };
 type Reasons = Partial<Record<"ar" | "en", string | null>>;
 export type PlanRow = { ticker: string; rating: string; conviction: string; session_id: string; target: number; price: number | null;
-  price_currency?: string; shares: number; cost: number; note: string | null; name?: Names; reason?: Reasons };
+  price_currency?: string; shares: number; cost: number; note: string | null; name?: Names; reason?: Reasons;
+  fee?: number; sector?: string | null; vol?: number | null; risk_adj?: number };
 export type Plan = { amount: number; currency: string; rows: PlanRow[]; cash_left: number;
   skipped: { ticker: string; rating: string | null; session_id: string; status?: string; name?: Names; reason?: Reasons; sharia?: ShariaResult }[];
-  notes: string[]; source?: string; sharia?: { method: string; excluded: string[] } | null };
+  notes: string[]; source?: string; sharia?: { method: string; excluded: string[] } | null;
+  correlated?: { a: string; b: string; corr: number }[]; fees_total?: number; caps?: { name: number; sector: number } };
 
 export function money(v: number, cur: string, lang: "ar" | "en") {
   const n = fmtNum(v, lang, { maximumFractionDigits: 2, minimumFractionDigits: v % 1 ? 2 : 0 });
@@ -94,7 +96,7 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
           <table className="plan-t">
             <thead><tr>
               <th>{ar ? "السهم" : "Stock"}</th><th>{ar ? "القرار" : "Call"}</th><th>{ar ? "المبلغ المستهدف" : "Target"}</th>
-              <th>{ar ? "سعر السهم" : "Price"}</th><th>{ar ? "عدد الأسهم" : "Shares"}</th><th>{ar ? "التكلفة" : "Cost"}</th>
+              <th>{ar ? "سعر السهم" : "Price"}</th><th>{ar ? "عدد الأسهم" : "Shares"}</th><th>{ar ? "الرسوم" : "Fees"}</th><th>{ar ? "التكلفة" : "Cost"}</th>
             </tr></thead>
             <tbody>
               {plan.rows.map((r) => (
@@ -104,6 +106,7 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
                   <td className="ltr">{money(r.target, cur, lang)}</td>
                   <td className="ltr">{r.price != null ? money(r.price, r.price_currency ?? cur, lang) : (ar ? "غير متوفر" : "unavailable")}</td>
                   <td className="ltr"><b>{fmtNum(r.shares, lang)}</b></td>
+                  <td className="ltr">{r.fee ? money(r.fee, cur, lang) : "—"}</td>
                   <td className="ltr">{r.note === "too_small" ? <span className="muted">{ar ? "المبلغ أقل من سهم" : "less than 1 share"}</span>
                     : r.note === "no_fx" ? <span className="muted">{ar ? "سعر الصرف غير متوفر" : "no FX rate"}</span>
                     : money(r.cost, cur, lang)}</td>
@@ -119,11 +122,33 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
       )}
       <div className="row" style={{ justifyContent: "space-between" }}>
         <span>{ar ? "يبقى نقد" : "Left in cash"}: <b className="ltr">{money(plan.cash_left, cur, lang)}</b></span>
-
+        {!!plan.fees_total && <span className="muted">{ar ? "رسوم الوسيط المقدّرة" : "Estimated broker fees"}: <b className="ltr">{money(plan.fees_total, cur, lang)}</b></span>}
       </div>
+      <PlanWarnings plan={plan} lang={lang} />
       <p className="muted" style={{ margin: 0, fontSize: 12, lineHeight: 1.7 }}>{ar
-        ? "الأوزان من قرارات الفريق (شراء ضعف الزيادة التدريجية، وقوة القناعة تعدّلها)، وبحد أقصى 40٪ للسهم الواحد (إلا إذا المبلغ صغير وسهم كامل واحد يتجاوزها، عشان ما يبقى المبلغ عاطل)، بأسهم كاملة وأسعار Yahoo الحالية. مثال للتفكير وليس نصيحة مالية، ولا تنسَ رسوم الوسيط."
-        : "Weights come from the team's calls (Buy counts double Overweight, adjusted by conviction), capped at 40% per stock (unless the amount is small and one whole share is more, so the money isn't left idle), in whole shares at current Yahoo prices. An illustration to think with, not financial advice; remember broker fees."}</p>
+        ? "الأوزان من قرارات الفريق (شراء ضعف الزيادة التدريجية، وقوة القناعة تعدّلها) ومن التذبذب (السهم الأهدأ ياخذ أكثر)، وبحد أقصى 40٪ للسهم الواحد و50٪ للقطاع الواحد، والباقي يبقى نقد. بأسهم كاملة وأسعار Yahoo الحالية، والرسوم من إعداداتك. مثال للتفكير وليس نصيحة مالية."
+        : "Weights come from the team's calls (Buy counts double Overweight, adjusted by conviction) and from volatility (a calmer stock gets more), with at most 40% per stock and 50% per sector; the rest stays in cash. Whole shares at current Yahoo prices, fees from your Settings. An illustration to think with, not financial advice."}</p>
     </section>
   );
+}
+
+/** Plain warnings under the plan: concentration, look-alike stocks, fees not entered. */
+function PlanWarnings({ plan, lang }: { plan: Plan; lang: "ar" | "en" }) {
+  const ar = lang === "ar";
+  const items: string[] = [];
+  if (plan.notes.includes("few_picks") && plan.rows.some((r) => r.shares > 0))
+    items.push(ar ? "سهم أو سهمين مو محفظة متنوعة: حطينا 40٪ كحد أقصى لكل سهم وخلينا الباقي نقد. فكّر بصندوق مؤشرات للجزء الباقي."
+      : "One or two stocks are not a diversified portfolio: each gets at most 40% and the rest stays in cash. Consider an index fund for the rest.");
+  if (plan.notes.includes("one_share_over_cap"))
+    items.push(ar ? "مبلغك صغير، فسهم واحد من بعض الشركات يتجاوز 40٪ من المبلغ. انتبه لتركّز المخاطرة."
+      : "Your amount is small, so one share of some companies is more than 40% of it. Mind the concentration.");
+  for (const c of plan.correlated ?? [])
+    items.push(ar ? `${c.a} و${c.b} يتحركون مع بعض تقريباً (ارتباط ${c.corr}): التنويع بينهم أقل مما يبدو.`
+      : `${c.a} and ${c.b} tend to move together (correlation ${c.corr}): less diversified than it looks.`);
+  if (plan.notes.includes("fees_not_set"))
+    items.push(ar ? "رسوم وسيطك مو مدخلة (الإعدادات ← رسوم الوسيط)، فالخطة ما تحسب العمولة. على المبالغ الصغيرة ممكن تفرق كثير."
+      : "Your broker's fees aren't entered (Settings → Broker fees), so the plan doesn't include commission. On small amounts it can matter a lot.");
+  if (!items.length) return null;
+  return <ul className="plan-warn" role="note" style={{ margin: 0, paddingInlineStart: 18, fontSize: 13, lineHeight: 1.7 }}>
+    {items.map((x, i) => <li key={i}>⚠ {x}</li>)}</ul>;
 }
