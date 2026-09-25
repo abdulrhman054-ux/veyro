@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import assistant, db, market, runner, world
+from . import assistant, db, market, runner, sharia, world
 from .config import CHARACTERS, LIST_BASE, MAX_BATCH, MAX_SCREEN, PRICING, PROVIDERS, RECOMMEND, ROOT, STATIC_DIR
 from .execution import service as exec_service
 from .execution.routes import router as exec_router
@@ -118,6 +118,9 @@ class SettingsIn(BaseModel):
     anthropic_workspace_id: str | None = None
     data_source: str | None = None
     monthly_cap_usd: float | None = None   # 0 = no cap
+    sharia_enabled: bool | None = None     # optional Sharia screen (off by default)
+    sharia_method: str | None = None
+    sharia_hide: bool | None = None
     custom_model: bool = False   # the user typed a model ID that isn't in the framework's list
 
 
@@ -143,6 +146,7 @@ def settings_payload() -> dict:
         "anthropic_workspace_id": db.get_setting("anthropic_workspace_id"),
         "data_keys": {k: {"present": bool(get_secret(f"data:{k}")), "masked": mask(get_secret(f"data:{k}"))}
                       for k in ("fred", "alpha_vantage", "typesafe")},
+        "sharia": {**sharia.settings(), "methods": {k: v["name"] for k, v in sharia.METHODS.items()}},
     }
 
 
@@ -192,6 +196,11 @@ def put_settings(s: SettingsIn):
         if s.reasoning_depth not in ("default", "low", "medium", "high"):
             raise HTTPException(400, "bad_depth")
         db.set_setting("reasoning_depth", s.reasoning_depth)
+    if s.sharia_enabled is not None or s.sharia_method is not None or s.sharia_hide is not None:
+        try:
+            sharia.save_settings(s.sharia_enabled, s.sharia_method, s.sharia_hide)
+        except ValueError:
+            raise HTTPException(400, "bad_method") from None
     return settings_payload()
 
 
@@ -1148,6 +1157,22 @@ def price_alerts_add(a: PriceAlertIn):
 def price_alerts_delete(aid: int):
     from . import extras
     return {"alerts": extras.delete_price_alert(aid)}
+
+
+# ---------------------------------------------------------------- optional Sharia screen
+class ShariaIn(BaseModel):
+    symbols: list[str] = Field(max_length=80)
+    method: str | None = None
+
+
+@app.post("/api/sharia/screen")
+def sharia_screen(b: ShariaIn):
+    """Badges for the screens that list stocks. Separate from any analysis, so it never slows one down."""
+    if b.method is not None and b.method not in sharia.METHODS:
+        raise HTTPException(400, "bad_method")
+    syms = [t for t in (x.strip().upper() for x in b.symbols) if TICKER_RE.match(t)]
+    return {"results": sharia.screen(syms, b.method), "method": b.method or sharia.settings()["method"],
+            "disclaimer": {lg: sharia.disclaimer(lg) for lg in ("ar", "en")}}
 
 
 # ---------------------------------------------------------------- beginner mode

@@ -45,18 +45,29 @@ def _reason(s: dict) -> dict:
 def plan(sessions: list[dict], amount: float, currency: str = "USD") -> dict:
     notes: list[str] = []
     picks = []
+    from . import sharia
+    halal: dict[str, dict] = {}
+    if sharia.enabled():
+        # Optional Sharia screen: non-compliant and unknown stocks get no money, and the plan says why.
+        halal = sharia.screen([s["ticker"] for s in sessions if s.get("rating") in WEIGHT])
     for s in sessions:
         if s.get("status") != "done" or s.get("rating") not in WEIGHT or s.get("mode") != "real":
+            continue
+        if halal and halal.get(s["ticker"].upper(), {}).get("status") != "compliant":
             continue
         conv = ((s.get("verdict") or {}).get("conviction")) or "unstated"
         picks.append({"ticker": s["ticker"], "rating": s["rating"], "conviction": conv, "session_id": s["id"],
                       "name": name_of(s["ticker"]), "reason": _reason(s), "w": WEIGHT[s["rating"]] * CONVICTION.get(conv, 1.0)})
     chosen = {p["session_id"] for p in picks}
     skipped = [{"ticker": s["ticker"], "rating": s.get("rating"), "session_id": s["id"], "status": s.get("status"),
-                "name": name_of(s["ticker"]), "reason": _reason(s)} for s in sessions if s["id"] not in chosen]
+                "name": name_of(s["ticker"]), "reason": _reason(s),
+                **({"sharia": halal[s["ticker"].upper()]} if s["ticker"].upper() in halal else {})}
+               for s in sessions if s["id"] not in chosen]
+    shar = {"method": sharia.settings()["method"], "excluded": [k for k, v in halal.items() if v["status"] != "compliant"]} \
+        if halal else None
     if not picks:
         return {"amount": amount, "currency": currency, "rows": [], "cash_left": round(amount, 2), "skipped": skipped,
-                "notes": ["no_positive"]}
+                "notes": ["no_positive"] + (["sharia_none"] if shar and shar["excluded"] else []), "sharia": shar}
     total = sum(p["w"] for p in picks)
     shares = [p["w"] / total for p in picks]
     if len(picks) >= 3:   # cap concentration, spread the excess over the others
@@ -113,4 +124,4 @@ def plan(sessions: list[dict], amount: float, currency: str = "USD") -> dict:
     if any(r["note"] == "too_small" for r in rows):
         notes.append("too_small")
     return {"amount": amount, "currency": currency, "rows": rows, "cash_left": round(amount - spent, 2),
-            "skipped": skipped, "notes": notes, "source": market.SOURCE}
+            "skipped": skipped, "notes": notes, "source": market.SOURCE, "sharia": shar}

@@ -132,6 +132,16 @@ def _ordered(market_id: str, risk: str) -> list[tuple]:
 def suggest(amount: float, currency: str, market_id: str, risk: str, count: int) -> dict:
     """Up to `count` affordable picks from different sectors, with real prices."""
     order = _ordered(market_id, risk)
+    from . import sharia
+    halal = None
+    if sharia.enabled():
+        # Optional Sharia screen: only compliant companies are suggested. Unknown is not compliant, and the list
+        # is never padded with others: if few remain, the answer says so.
+        res = sharia.screen([x[0] for x in order])
+        halal = {"method": sharia.settings()["method"],
+                 "excluded": [{"symbol": x[0], "name_en": x[1], "name_ar": x[2], "status": res[x[0]]["status"],
+                               "reasons": res[x[0]]["reasons"]} for x in order if res[x[0]]["status"] != "compliant"]}
+        order = [x for x in order if res[x[0]]["status"] == "compliant"]
     with ThreadPoolExecutor(max_workers=8) as ex:
         prices = dict(zip([x[0] for x in order], ex.map(market.last_price, [x[0] for x in order])))
     rates: dict[str, float | None] = {}
@@ -164,8 +174,11 @@ def suggest(amount: float, currency: str, market_id: str, risk: str, count: int)
                           "price": px["price"], "currency": px["currency"], "price_in_budget": round(cost, 2)})
         if len(picks) >= count:
             break
-    return {"picks": picks, "prices_available": any(prices.values()), "source": market.SOURCE,
-            "markets": market_status(market_id)}
+    out = {"picks": picks, "prices_available": any(prices.values()), "source": market.SOURCE,
+           "markets": market_status(market_id)}
+    if halal is not None:
+        out["sharia"] = {**halal, "short": len(picks) < count, "wanted": count}
+    return out
 
 
 # ---------------------------------------------------------------- the lesson
