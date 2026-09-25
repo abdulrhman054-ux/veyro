@@ -90,12 +90,14 @@ def plan(sessions: list[dict], amount: float, currency: str = "USD") -> dict:
                      "shares": n, "cost": round(cost, 2), "note": "too_small" if n == 0 else None, "_pb": px["price"] / rate})
     # Leftover cash: first give a whole share to positive picks that got none (weightiest first), then top up
     # the picks furthest below their share, never beyond 1.5x their target, so small budgets still get spread.
+    # A top-up never takes a stock past the 40% cap (only a single first share may exceed it on a small amount).
     cash = amount - spent
+    ceiling = MAX_SHARE * amount if len(picks) >= 3 else float("inf")
     live = [r for r in rows if r.get("_pb")]
     while True:
         fit = [r for r in live if r["_pb"] <= cash + 1e-9]
         zero = sorted((r for r in fit if r["shares"] == 0), key=lambda r: -r["w"])
-        under = sorted((r for r in fit if r["shares"] > 0 and r["cost"] + r["_pb"] <= r["target"] * 1.5),
+        under = sorted((r for r in fit if r["shares"] > 0 and r["cost"] + r["_pb"] <= min(r["target"] * 1.5, ceiling) + 1e-9),
                        key=lambda r: -(r["target"] - r["cost"]))
         pick = zero[0] if zero else under[0] if under else None
         if not pick:
