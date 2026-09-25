@@ -149,6 +149,7 @@ def suggest(amount: float, currency: str, market_id: str, risk: str, count: int)
     # Loosen the affordability bar step by step: first "every pick gets at least one share", then "one share fits".
     for cap in (amount / max(1, count), amount * 0.6, amount):
         for sym, en, ar, sector, style in order:
+            mkt = "sa" if sym.endswith(".SR") else "us"
             if len(picks) >= count:
                 break
             if any(p["symbol"] == sym for p in picks):
@@ -156,10 +157,10 @@ def suggest(amount: float, currency: str, market_id: str, risk: str, count: int)
             cost = in_budget_ccy(sym)
             if cost is None or cost > cap:
                 continue
-            if any(p["sector"] == sector for p in picks) and cap != amount:
-                continue   # spread across sectors while we still have choice
+            if cap != amount and any(p["sector"] == sector and p["market"] == mkt for p in picks):
+                continue   # spread across sectors (within each market) while we still have choice
             px = prices[sym]
-            picks.append({"symbol": sym, "name_en": en, "name_ar": ar, "sector": sector, "style": style,
+            picks.append({"symbol": sym, "name_en": en, "name_ar": ar, "sector": sector, "style": style, "market": mkt,
                           "price": px["price"], "currency": px["currency"], "price_in_budget": round(cost, 2)})
         if len(picks) >= count:
             break
