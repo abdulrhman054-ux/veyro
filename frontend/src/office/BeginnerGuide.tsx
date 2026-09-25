@@ -24,7 +24,7 @@ export function BeginnerGuide({ scanId, onOpen, onClose }: { scanId: string; onO
   useEffect(() => {
     let alive = true;
     setG(null); setFailed(false);
-    api.get<Guide>(`/api/beginner/${scanId}/guide?lang=${lang}`).then((r) => alive && setG(r)).catch(() => alive && setFailed(true));
+    api.post<Guide>(`/api/beginner/${scanId}/guide?lang=${lang}`).then((r) => alive && setG(r)).catch(() => alive && setFailed(true));
     return () => { alive = false; };
   }, [scanId, lang]);
   return (

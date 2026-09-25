@@ -281,7 +281,7 @@ def ask(sid: str, question: str, lang: str) -> dict:
         'Return ONLY JSON: {"character": "<name>", "answer": "<text>"}'
     )
     user = f"Ticker: {s['ticker']} · verdict: {s.get('rating')}\n\nSession notes:\n{notes[:24000]}\n\nQuestion: {question}"
-    raw = Voice(provider, quick)._ask(system, user)
+    raw = Voice(provider, quick, what="ask")._ask(system, user)
     m = re.search(r"\{.*\}", raw, re.S)
     data = {}
     if m:

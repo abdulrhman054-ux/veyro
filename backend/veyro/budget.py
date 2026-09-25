@@ -42,9 +42,11 @@ def spent() -> dict:
                 unpriced += 1
         if r["status"] == "running" and not r["usage_json"]:
             reserved += _session_high(r["provider"], r["quick_model"], r["deep_model"])
-    extra = sum(float(x.get("usd") or 0) for x in (db.get_setting("spend_extra") or []) if x.get("month") == m)
+    ex = [x for x in (db.get_setting("spend_extra") or []) if x.get("month") == m]
+    extra = sum(float(x.get("usd") or 0) for x in ex)
     return {"month": m, "spent": round(known + extra, 4), "reserved": round(reserved, 4), "sessions": len(rows),
-            "unpriced_sessions": unpriced, "cap": cap()}
+            "unpriced_sessions": unpriced, "cap": cap(), "other_usd": round(extra, 4),
+            "other_calls": sum(int(x.get("calls") or 0) for x in ex), "unpriced_calls": sum(int(x.get("unpriced") or 0) for x in ex)}
 
 
 def _session_high(provider, quick, deep) -> float:
@@ -55,11 +57,52 @@ def _session_high(provider, quick, deep) -> float:
         return 0.0
 
 
+_ledger_lock = __import__("threading").Lock()
+
+
+def record_extra(usd: float | None, what: str) -> None:
+    """Spend outside a session (translations, Albie, Ask the team, the beginner lesson, connection tests, backtests),
+    added up per month and kind. usd=None means the model has no known price: the call is counted as unpriced."""
+    with _ledger_lock:
+        m = month_key()
+        rows = [x for x in (db.get_setting("spend_extra") or []) if x.get("month", "") >= f"{int(m[:4]) - 1}{m[4:]}"]
+        row = next((x for x in rows if x.get("month") == m and x.get("what") == what), None)
+        if row is None:
+            row = {"month": m, "what": what, "usd": 0.0, "calls": 0, "unpriced": 0}
+            rows.append(row)
+        row["calls"] = row.get("calls", 0) + 1
+        if usd is None:
+            row["unpriced"] = row.get("unpriced", 0) + 1
+        else:
+            row["usd"] = round(float(row.get("usd") or 0) + float(usd), 6)
+        db.set_setting("spend_extra", rows)
+
+
 def reserve_extra(usd: float, what: str) -> None:
     """Record spend Veyro can't measure token by token (the framework's backtest) at its high estimate."""
-    rows = [x for x in (db.get_setting("spend_extra") or []) if x.get("month", "") >= month_key()[:4]]
-    rows.append({"month": month_key(), "usd": round(float(usd), 4), "what": what, "at": db.now()})
-    db.set_setting("spend_extra", rows)
+    record_extra(usd, what)
+
+
+class CapReached(Exception):
+    """This month's cap is reached: no new paid call starts."""
+
+
+def ledger_tracker(what: str):
+    """A usage callback for one-off calls: each model reply's cost goes into this month's ledger as it arrives."""
+    from .runner import UsageTracker, price_for
+
+    class Ledger(UsageTracker):
+        def on_llm_end(self, response, **kwargs):  # noqa: ANN001
+            for gens in response.generations:
+                for g in gens:
+                    msg = getattr(g, "message", None)
+                    um = getattr(msg, "usage_metadata", None) or {}
+                    meta = getattr(msg, "response_metadata", None) or {}
+                    p = price_for(meta.get("model_name") or meta.get("model"))
+                    i, o = int(um.get("input_tokens", 0) or 0), int(um.get("output_tokens", 0) or 0)
+                    record_extra((i * p[0] + o * p[1]) / 1_000_000 if p else None, what)
+            super().on_llm_end(response, **kwargs)
+    return Ledger()
 
 
 def blocked() -> bool:

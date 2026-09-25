@@ -247,7 +247,7 @@ def _tiles_block(tiles: list[dict]) -> str:
 
 def _llm(provider: str, model: str, system: str, user: str) -> str:
     from .voice import Voice
-    v = Voice(provider, model)
+    v = Voice(provider, model, what="albie")
     return v._ask(system, user)
 
 

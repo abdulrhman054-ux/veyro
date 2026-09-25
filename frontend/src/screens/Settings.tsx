@@ -171,6 +171,7 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
           <BrokerFees settings={settings} onChange={onChange} lang={lang} />
           <div className="toggle"><span>{t.estimate}</span>
             <span className="pixel ltr">{e.known && e.low != null && e.high != null ? `${fmtUsd(e.low, lang)} – ${fmtUsd(e.high, lang)}` : t.unknownPrice}</span></div>
+          <CustomPrices settings={settings} onChange={onChange} lang={lang} pricing={settings.pricing} />
         </section>
 
         <ShariaSettings settings={settings} onChange={onChange} />
@@ -353,6 +354,8 @@ function BudgetCap({ settings, onChange, lang }: { settings: Settings; onChange:
       {sp && <>
         <div className="capbar" aria-hidden="true"><i style={{ width: `${pct * 100}%`, background: pct >= 1 ? "var(--sell)" : pct > 0.8 ? "var(--orange)" : "var(--buy)" }} /></div>
         <span style={{ fontSize: 13 }}>{ar ? `صرفت هذا الشهر ${"$"}${sp.spent.toFixed(2)}${sp.cap ? ` من ${"$"}${sp.cap}` : ""} في ${sp.sessions} جلسة.` : `Spent this month: $${sp.spent.toFixed(2)}${sp.cap ? ` of $${sp.cap}` : ""} across ${sp.sessions} sessions.`}
+          {!!sp.other_calls && <span className="muted">{ar ? ` منها ${"$"}${(sp.other_usd ?? 0).toFixed(2)} على ${sp.other_calls} طلب جانبي (ترجمة، ألبي، اسأل الفريق، دليل المبتدئ).` : ` Includes $${(sp.other_usd ?? 0).toFixed(2)} on ${sp.other_calls} side requests (translations, Albie, Ask the team, the beginner guide).`}</span>}
+          {!!sp.reserved && <span className="muted">{ar ? ` ومحجوز ${"$"}${sp.reserved.toFixed(2)} لجلسات شغالة الحين.` : ` Plus $${sp.reserved.toFixed(2)} held for sessions running now.`}</span>}
           {sp.unpriced_sessions > 0 && <span className="muted">{ar ? ` (${sp.unpriced_sessions} جلسة فيها نموذج سعره غير معروف: انحسب الجزء المعروف فقط، فالسقف ما يحميك كامل مع هالمزوّد)` : ` (${sp.unpriced_sessions} sessions used a model with an unknown price: only the priced part is counted, so the cap can't fully protect you with that provider)`}</span>}</span>
       </>}
       <span className="muted" style={{ fontSize: 12 }}>{ar ? "لما يوصل الصرف للسقف، ما تبدأ جلسات مدفوعة جديدة (الوضع التجريبي يبقى متاح). المسح يوقف عند السقف." : "Once spending reaches the cap no new paid session starts (demo still works); scans stop at the cap."}</span>
@@ -392,6 +395,46 @@ function BrokerFees({ settings, onChange, lang }: { settings: Settings; onChange
           {f?.[m]?.set && <span className="muted" style={{ fontSize: 12 }}>✓</span>}
         </div>
       ))}
+      {msg && <span style={{ fontSize: 13 }}>{msg}</span>}
+    </div>
+  );
+}
+
+/** Models Veyro has no price for (most non-Claude ones): the owner can type the price from the provider's pricing
+ *  page, so the estimate and the monthly cap count them. Never filled in by Veyro. */
+function CustomPrices({ settings, onChange, lang, pricing }: { settings: Settings; onChange: (s: Settings) => void; lang: "ar" | "en"; pricing?: Record<string, [number, number]> }) {
+  const ar = lang === "ar";
+  const models = [...new Set([settings.quick_model, settings.deep_model].filter((m): m is string => !!m))]
+    .filter((m) => !priceOf(m, pricing) || settings.custom_prices?.[m]);
+  const [vals, setVals] = useState<Record<string, [string, string]>>({});
+  const [msg, setMsg] = useState<string | null>(null);
+  if (!models.length) return null;
+  const save = async (m: string) => {
+    const [i, o] = (vals[m] ?? ["", ""]).map((x) => Number(x || 0));
+    if (!(i >= 0 && o >= 0)) { setMsg(ar ? "اكتب أرقام صحيحة." : "Enter valid numbers."); return; }
+    try { onChange(await api.put<Settings>("/api/prices", { model: m, input: i, output: o })); setMsg(ar ? "انحفظ ✓" : "Saved ✓"); }
+    catch { setMsg(ar ? "ما انحفظ." : "Not saved."); }
+  };
+  return (
+    <div className="stack" style={{ gap: 6, padding: 10, borderRadius: 16, background: "var(--cream)" }}>
+      <b>{ar ? "سعر النموذج (غير معروف لفيرو)" : "Model price (unknown to Veyro)"}</b>
+      <span className="muted" style={{ fontSize: 12, lineHeight: 1.6 }}>{ar
+        ? "بدون سعر، التقدير وسقف الميزانية ما يقدرون يحسبون هالنموذج. اكتب السعر من صفحة أسعار المزوّد (دولار لكل مليون توكن)."
+        : "Without a price, the estimate and the budget cap can't count this model. Copy the price from the provider's pricing page (USD per 1M tokens)."}</span>
+      {models.map((m) => {
+        const cur = settings.custom_prices?.[m];
+        const v = vals[m] ?? [cur ? String(cur[0]) : "", cur ? String(cur[1]) : ""];
+        return (
+          <div key={m} className="row" style={{ gap: 6 }}>
+            <span className="pixel ltr" style={{ minWidth: 120 }}>{m}</span>
+            <input className="field ltr" style={{ width: 90, height: 36 }} inputMode="decimal" placeholder={ar ? "إدخال $" : "input $"} aria-label={ar ? `سعر الإدخال ${m}` : `Input price ${m}`}
+              value={v[0]} onChange={(e) => { setVals((x) => ({ ...x, [m]: [e.target.value, v[1]] })); setMsg(null); }} />
+            <input className="field ltr" style={{ width: 90, height: 36 }} inputMode="decimal" placeholder={ar ? "إخراج $" : "output $"} aria-label={ar ? `سعر الإخراج ${m}` : `Output price ${m}`}
+              value={v[1]} onChange={(e) => { setVals((x) => ({ ...x, [m]: [v[0], e.target.value] })); setMsg(null); }} />
+            <button className="ghost btn mini" onClick={() => void save(m)}>{ar ? "حفظ" : "Save"}</button>
+          </div>
+        );
+      })}
       {msg && <span style={{ fontSize: 13 }}>{msg}</span>}
     </div>
   );

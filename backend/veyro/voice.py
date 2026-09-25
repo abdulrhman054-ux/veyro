@@ -47,10 +47,17 @@ def clean_line(text: str) -> str:
 
 
 class Voice:
-    def __init__(self, provider: str, model: str, callbacks: list | None = None):
+    def __init__(self, provider: str, model: str, callbacks: list | None = None, what: str = "other", allow_over_cap: bool = False):
+        """Inside a session the session's tracker is passed in. Any other call (translation, Albie, Ask the team, the
+        beginner lesson, a connection test) is counted in the month's spend ledger and refused once the cap is reached
+        (a connection test is allowed: it's how the owner fixes a key)."""
         kwargs: dict[str, Any] = {}
-        if callbacks:
-            kwargs["callbacks"] = callbacks
+        self.side = not callbacks
+        self.allow_over_cap = allow_over_cap
+        if not callbacks:
+            from .budget import ledger_tracker
+            callbacks = [ledger_tracker(what)]
+        kwargs["callbacks"] = callbacks
         base = None
         if provider == "anthropic":
             from .anthropic_relay import base_url
@@ -58,6 +65,10 @@ class Voice:
         self.llm = create_llm_client(provider=provider, model=model, base_url=base, **kwargs).get_llm()
 
     def _ask(self, system: str, user: str) -> str:
+        if self.side and not self.allow_over_cap:
+            from .budget import CapReached, blocked
+            if blocked():
+                raise CapReached()
         return _text(self.llm.invoke([("system", system), ("human", user)]))
 
     def speak(self, character: str, ticker: str, source: str, lang: str, context: str = "") -> str:

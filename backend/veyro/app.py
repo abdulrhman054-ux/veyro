@@ -148,6 +148,7 @@ def settings_payload() -> dict:
                       for k in ("fred", "alpha_vantage", "typesafe")},
         "sharia": {**sharia.settings(), "methods": {k: v["name"] for k, v in sharia.METHODS.items()}},
         "broker_fees": __import__("veyro.allocation", fromlist=["x"]).fees(),
+        "custom_prices": db.get_setting("custom_prices") or {},
     }
 
 
@@ -262,7 +263,7 @@ def test_connection(provider: str | None = None) -> dict:
             results[role] = {"model": "—", "ok": False, "code": "model"}
             continue
         try:
-            Voice(provider, model)._ask("Reply with the single word OK.", "ping")
+            Voice(provider, model, what="key_test", allow_over_cap=True)._ask("Reply with the single word OK.", "ping")
             results[role] = {"model": model, "ok": True}
         except Exception as e:  # noqa: BLE001
             results[role] = {"model": model, "ok": False, "code": runner.classify(e)}
@@ -485,7 +486,7 @@ def translate(tid: int, body: TranslateIn):
     import os
     runner.activate_key(provider, key)
     from .voice import Voice
-    v = Voice(provider, quick)
+    v = Voice(provider, quick, what="translate")
     try:
         if body.what == "detail_ar":
             val = v.translate_detail(t["detail_en"])
@@ -528,7 +529,7 @@ def verdict_text(sid: str, body: VerdictTextIn):
     runner.activate_key(provider, key)
     from .voice import Voice
     try:
-        out = Voice(provider, quick).verdict(s["ticker"], s["rating"], pm["detail_en"], body.lang)
+        out = Voice(provider, quick, what="translate").verdict(s["ticker"], s["rating"], pm["detail_en"], body.lang)
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "code": runner.classify(e)})
     texts[body.lang] = {"line": out["line"], "reason": out["reason"]}
@@ -1160,6 +1161,26 @@ def price_alerts_delete(aid: int):
     return {"alerts": extras.delete_price_alert(aid)}
 
 
+class PriceIn(BaseModel):
+    model: str
+    input: float = 0.0    # USD per 1M input tokens; 0 removes the entry
+    output: float = 0.0
+
+
+@app.put("/api/prices")
+def put_price(p: PriceIn):
+    """The owner's price for a model Veyro has no price for (from the provider's pricing page), so the cap can count it."""
+    if not runner.MODEL_ID_RE.match(p.model) or not (0 <= p.input <= 1000 and 0 <= p.output <= 1000):
+        raise HTTPException(400, "bad_price")
+    prices = db.get_setting("custom_prices") or {}
+    if p.input == 0 and p.output == 0:
+        prices.pop(p.model, None)
+    else:
+        prices[p.model] = [p.input, p.output]
+    db.set_setting("custom_prices", prices)
+    return settings_payload()
+
+
 @app.get("/api/fx")
 def fx_rate(src: str, dst: str):
     """Units of dst per 1 src (Yahoo), e.g. to compare an analysis's cost in USD with a budget in SAR."""
@@ -1251,7 +1272,7 @@ def beginner_start(b: BeginnerStartIn):
             "estimate": runner.estimate(*runner.settings_models(), sessions=len(tickers)) if not b.demo else None}
 
 
-@app.get("/api/beginner/{scan_id}/guide")
+@app.post("/api/beginner/{scan_id}/guide")   # POST: the first call may make a paid model call
 def beginner_guide(scan_id: str, lang: str = "ar"):
     from . import beginner
     if lang not in ("ar", "en"):

@@ -38,6 +38,9 @@ RATING_ORDER = ["Buy", "Overweight", "Hold", "Underweight", "Sell"]
 def price_for(model: str | None) -> tuple[float, float] | None:
     if not model:
         return None
+    custom = (db.get_setting("custom_prices") or {}).get(model)   # the owner's own entry for a model with no known price
+    if custom:
+        return (float(custom[0]), float(custom[1]))
     # Longest prefix wins, so "claude-opus-5-5" is never priced as "claude-opus-5".
     for k in sorted(PRICING, key=len, reverse=True):
         if model == k or model.startswith(k + "-") or model.startswith(k + "@"):
@@ -139,6 +142,8 @@ TRACKERS: dict[str, "UsageTracker"] = {}   # live token counters, so a stopped o
 
 # ---------------------------------------------------------------- in-character errors
 ERRORS = {
+    "budget_cap": ("Leo", "وصلنا سقف ميزانية التحليل لهذا الشهر، فما نبدأ طلب مدفوع جديد. تقدر ترفع السقف من الإعدادات. زئير!",
+                   "This month's analysis budget cap is reached, so no new paid request starts. You can raise the cap in Settings. Roar!"),
     "no_key": ("Pip", "ما لقيت مفتاح! حطّ مفتاح API من الإعدادات وبنبدأ على طول، سكوااك!",
                "No key found! Add your API key in Settings and we'll get going, squawk!"),
     "auth": ("Pip", "الخط مقطوع! تأكد من المفتاح، شكله غلط أو منتهي، سكوااك!",
@@ -162,6 +167,8 @@ ERRORS = {
 def classify(exc: BaseException) -> str:
     name = type(exc).__name__.lower()
     msg = str(exc).lower()
+    if name == "capreached":
+        return "budget_cap"
     if "workspace" in msg:
         return "workspace"
     if "authentication" in name or "401" in msg or "invalid x-api-key" in msg or "invalid api key" in msg or "incorrect api key" in msg:

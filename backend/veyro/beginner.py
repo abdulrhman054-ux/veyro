@@ -339,7 +339,7 @@ def _mentor(scan: dict, prof: dict, plan: dict, lang: str) -> dict:
         + " | ".join(f"{c}: {STYLE[c][lang]}" for c in ("Leo", "Tank", "Benny", "Ollie", "Bruno", "Pip"))
     )
     user = f"Leo's plan for the budget:\n{rows}\nCash left: {plan['cash_left']} {plan['currency']}\n\nSession notes:\n" + "\n\n".join(notes)[:20000]
-    raw = Voice(provider, quick)._ask(system, user)
+    raw = Voice(provider, quick, what="lesson")._ask(system, user)
     m = re.search(r"\{.*\}", raw, re.S)
     data = json.loads(m.group(0)) if m else {}
     tips = [{"character": t.get("character") if t.get("character") in CHARACTERS else "Leo", "tip": clean_line(str(t.get("tip", "")))}

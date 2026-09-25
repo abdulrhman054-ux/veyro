@@ -280,3 +280,64 @@ def test_trust_does_not_score_calls_minutes_old():
     t = assistant.trust([fresh, fresh, fresh, old])
     assert t["overall"]["n"] == 1 and t["overall"]["hits"] == 1
     assert t["pending"] == 3 and t["min_age_days"] >= 7
+
+
+# ---------------------------------------------------------------- side calls: counted and capped; custom prices
+class _FakeLLM:
+    def __init__(self, cbs, model="claude-sonnet-5"):
+        self.cbs, self.model = cbs, model
+    def invoke(self, msgs):
+        from types import SimpleNamespace
+        for cb in self.cbs:
+            cb.on_llm_end(_spend(self.model, 1_000_000, 100_000))    # $2 + $1 on Sonnet 5
+        return SimpleNamespace(content="ok")
+
+
+def _voice(monkeypatch, model="claude-sonnet-5", **kw):
+    from veyro import voice
+    captured = {}
+
+    class Client:
+        def __init__(self, provider, model, base_url=None, callbacks=None):
+            captured["cbs"] = callbacks
+        def get_llm(self):
+            return _FakeLLM(captured["cbs"], model)
+    monkeypatch.setattr(voice, "create_llm_client", lambda provider, model, base_url=None, **k: Client(provider, model, base_url, k.get("callbacks")))
+    return voice.Voice("anthropic", model, **kw)
+
+
+def test_side_calls_are_counted_in_the_month(monkeypatch):
+    budget = _fresh_month(monkeypatch)
+    db.set_setting("spend_extra", [])
+    db.set_setting("monthly_cap_usd", "100")
+    _voice(monkeypatch, what="translate")._ask("s", "u")
+    sp = budget.spent()
+    assert sp["other_usd"] == pytest.approx(3.0) and sp["other_calls"] == 1 and sp["spent"] >= 3.0
+
+
+def test_side_calls_refused_at_cap_but_key_test_allowed(monkeypatch):
+    from veyro.budget import CapReached
+    budget = _fresh_month(monkeypatch)
+    db.set_setting("spend_extra", [])
+    db.set_setting("monthly_cap_usd", "1")
+    budget.record_extra(1.5, "albie")
+    with pytest.raises(CapReached):
+        _voice(monkeypatch, what="ask")._ask("s", "u")
+    assert _voice(monkeypatch, what="key_test", allow_over_cap=True)._ask("s", "u") == "ok"
+    from veyro import runner
+    assert runner.classify(CapReached()) == "budget_cap"
+
+
+def test_custom_price_makes_an_unpriced_model_count(monkeypatch):
+    from veyro import runner
+    budget = _fresh_month(monkeypatch)
+    db.set_setting("spend_extra", [])
+    db.set_setting("monthly_cap_usd", "100")
+    db.set_setting("custom_prices", None)
+    _voice(monkeypatch, model="gpt-6-luna", what="translate")._ask("s", "u")
+    assert budget.spent()["unpriced_calls"] == 1 and budget.spent()["other_usd"] == 0
+    db.set_setting("custom_prices", {"gpt-6-luna": [1.0, 4.0]})
+    assert runner.price_for("gpt-6-luna") == (1.0, 4.0)
+    _voice(monkeypatch, model="gpt-6-luna", what="translate")._ask("s", "u")
+    assert budget.spent()["other_usd"] == pytest.approx(1.4)
+    db.set_setting("custom_prices", None)
