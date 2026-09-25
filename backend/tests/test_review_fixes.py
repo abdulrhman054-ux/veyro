@@ -47,3 +47,35 @@ def test_beginner_both_markets_suggests_from_both():
     r = beginner.suggest(1000, "SAR", "both", "balanced", 3)
     syms = [p["symbol"] for p in r["picks"]]
     assert any(s.endswith(".SR") for s in syms) and any(not s.endswith(".SR") for s in syms), syms
+
+
+# ---------------------------------------------------------------- DNS rebinding: only loopback Host names are served
+def _client(host):
+    from fastapi.testclient import TestClient
+    from veyro.app import app
+    return TestClient(app, base_url=f"http://{host}:8765")
+
+
+def test_foreign_host_cannot_change_settings():
+    # A page on attacker.example whose DNS was re-pointed at 127.0.0.1 sends Origin == Host, so the old
+    # same-origin test passed and it could clear the spend cap.
+    c = _client("attacker.example")
+    r = c.put("/api/settings", json={"monthly_cap_usd": 0}, headers={"origin": "http://attacker.example:8765"})
+    assert r.status_code == 403
+    assert c.get("/api/settings").status_code == 403
+
+
+def test_foreign_host_websocket_refused():
+    from starlette.websockets import WebSocketDisconnect
+    c = _client("attacker.example")
+    with pytest.raises(WebSocketDisconnect):
+        with c.websocket_connect("/ws/sessions/none", headers={"origin": "http://attacker.example:8765", "host": "attacker.example:8765"}) as ws:
+            ws.receive_json()
+    with _client("127.0.0.1").websocket_connect("/ws/sessions/none", headers={"origin": "http://127.0.0.1:8765", "host": "127.0.0.1:8765"}) as ws:
+        assert ws.receive_json()["code"] == "not_found"   # loopback is still served
+
+
+def test_loopback_host_still_works():
+    c = _client("127.0.0.1")
+    assert c.get("/api/health").status_code == 200
+    assert c.get("/api/settings", headers={"host": "localhost:8765"}).status_code == 200

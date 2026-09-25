@@ -58,10 +58,22 @@ app.include_router(exec_router)
 app.include_router(relay_router)
 
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+
+def _loopback_host(host: str) -> bool:
+    """Veyro only serves loopback names. A foreign Host means DNS rebinding (a website whose name was re-pointed
+    at 127.0.0.1 sends a matching Origin, so the Origin test alone can't stop it)."""
+    name = host.rsplit(":", 1)[0] if not host.endswith("]") else host
+    return name.lower() in LOOPBACK_HOSTS
+
+
 @app.middleware("http")
 async def same_origin_only(request, call_next):
     """Changes can only come from Veyro's own page: another website open in the browser can't drive the
     local API (requests without an Origin header, e.g. local tools, are allowed)."""
+    if not _loopback_host(request.headers.get("host", "")):
+        return JSONResponse({"error": "host"}, status_code=403)
     if request.method in ("POST", "PUT", "DELETE", "PATCH") and request.url.path.startswith("/api/"):
         origin = request.headers.get("origin")
         if origin and not _same_origin(origin, request.headers.get("host", "")):
@@ -77,7 +89,8 @@ def _same_origin(origin: str, host: str) -> bool:
 
 def _ws_ok(ws: WebSocket) -> bool:
     origin = ws.headers.get("origin")
-    return not origin or _same_origin(origin, ws.headers.get("host", ""))
+    host = ws.headers.get("host", "")
+    return _loopback_host(host) and (not origin or _same_origin(origin, host))
 
 
 @app.exception_handler(Exception)
