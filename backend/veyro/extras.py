@@ -96,11 +96,13 @@ def paper_close(pid: int) -> dict:
     row = db.q1("SELECT * FROM paper WHERE id=?", (pid,))
     if row and not row["closed_at"]:
         px = market.last_price(row["ticker"])
+        if not px:
+            raise ValueError("no_price")   # never book an invented exit price
         b = market.last_price(row["bench"]) if row["bench"] else None
         # the index is frozen at the same moment as the stock, so a closed position's alpha stops moving
         with db.tx() as c:
             c.execute("UPDATE paper SET closed_at=?, exit_price=?, bench_exit=? WHERE id=?",
-                      (db.now(), px["price"] if px else row["entry_price"], b["price"] if b else None, pid))
+                      (db.now(), px["price"], b["price"] if b else None, pid))
     return paper_view()
 
 

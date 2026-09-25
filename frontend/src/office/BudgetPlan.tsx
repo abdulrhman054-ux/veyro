@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { SpriteSvg } from "../art/Sprite";
-import { RATING, fmtNum } from "../i18n";
+import { RATING, fmtNum, sharesText } from "../i18n";
 import { usePrefs } from "../prefs";
 import { AddToPaper } from "../extras/Paper";
 
@@ -49,7 +49,7 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
             {plan.rows.filter((r) => r.shares > 0).map((r) => (
               <li key={r.ticker}>
                 <b>{r.name?.[lang] ?? r.ticker}</b> <span className="pixel ltr muted">({r.ticker})</span>
-                {" — "}<span>{ar ? `${fmtNum(r.shares, lang)} سهم بحوالي ${money(r.cost, cur, lang)}` : `${fmtNum(r.shares, lang)} shares, about ${money(r.cost, cur, lang)}`}</span>
+                {" — "}<span>{ar ? `${sharesText(r.shares, lang)} بحوالي ${money(r.cost, cur, lang)}` : `${sharesText(r.shares, lang)}, about ${money(r.cost, cur, lang)}`}</span>
                 {" · "}<span className={`vchip ${RATING[r.rating]?.tone ?? "none"}`}>{ar ? RATING[r.rating]?.ar : RATING[r.rating]?.en}</span>
                 {r.reason?.[lang] && <div className="muted" style={{ fontSize: 13 }}>{ar ? "ليش: " : "Why: "}{r.reason[lang]}</div>}
               </li>
@@ -83,7 +83,7 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
         <div className="tablewrap">
           <table className="plan-t">
             <thead><tr>
-              <th>{ar ? "السهم" : "Stock"}</th><th>{ar ? "القرار" : "Call"}</th><th>{ar ? "النصيب" : "Share"}</th>
+              <th>{ar ? "السهم" : "Stock"}</th><th>{ar ? "القرار" : "Call"}</th><th>{ar ? "المبلغ المستهدف" : "Target"}</th>
               <th>{ar ? "سعر السهم" : "Price"}</th><th>{ar ? "عدد الأسهم" : "Shares"}</th><th>{ar ? "التكلفة" : "Cost"}</th>
             </tr></thead>
             <tbody>

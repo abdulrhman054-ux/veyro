@@ -12,8 +12,19 @@ const DEFAULTS: Prefs = { lang: "ar", theme: "day", intensity: "normal", reduceM
   textSize: "normal", contrast: false, readAloud: false };
 const KEY = "veyro.prefs.v1";
 
+/** First visit: follow the browser's language (Arabic browsers get Arabic, everyone else English). */
+function browserLang(): Lang {
+  try {
+    for (const l of navigator.languages?.length ? navigator.languages : [navigator.language]) {
+      const b = (l || "").toLowerCase().slice(0, 2);
+      if (b === "ar" || b === "en") return b;
+    }
+    return "en";
+  } catch { return DEFAULTS.lang; }
+}
+
 function load(): Prefs {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch { return DEFAULTS; }
+  try { return { ...DEFAULTS, lang: browserLang(), ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch { return DEFAULTS; }
 }
 
 type Ctx = { prefs: Prefs; set: (p: Partial<Prefs>) => void; t: T; night: boolean; motionOff: boolean };

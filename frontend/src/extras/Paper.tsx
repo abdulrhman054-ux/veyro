@@ -17,10 +17,15 @@ export function PaperPortfolio({ active = true }: { active?: boolean }) {
   const { prefs } = usePrefs();
   const lang = prefs.lang, ar = lang === "ar";
   const [v, setV] = useState<View | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   useEffect(() => { if (active) api.get<View>("/api/paper").then(setV).catch(() => {}); }, [active]);
   if (!v) return null;
   const open = v.positions.filter((p) => !p.closed_at), closed = v.positions.filter((p) => p.closed_at);
-  const act = (url: string, method: "post" | "del") => (method === "post" ? api.post<View>(url) : api.del<View>(url)).then(setV).catch(() => {});
+  const act = (url: string, method: "post" | "del") => (method === "post" ? api.post<View | { ok: false; code: string }>(url) : api.del<View>(url))
+    .then((r) => {
+      if ("ok" in r && r.ok === false) { setNote(ar ? "ما فيه سعر حالي للسهم، فما قفلنا المركز (ما نسجّل سعر بيع مخترع). جرّب بعد شوي." : "No current price for this stock, so the position stays open (we never book a made-up exit price). Try again shortly."); return; }
+      setNote(null); setV(r as View);
+    }).catch(() => {});
   return (
     <section className="card stack" style={{ gap: 12 }} aria-labelledby="paper-h">
       <div className="row" style={{ gap: 10 }}><SpriteSvg name="Bruno" px={2} />
@@ -29,6 +34,7 @@ export function PaperPortfolio({ active = true }: { active?: boolean }) {
           <span className="muted" style={{ fontSize: 14 }}>{ar ? "قرارات الفريق «مشتراة» على الورق بأسعار حقيقية، ونقارنها بمؤشر كل سوق. بدون فلوس حقيقية." : "The team's calls “bought” on paper at real prices, compared with each market's index. No real money."}</span>
         </div>
       </div>
+      {note && <p role="status" className="muted" style={{ margin: 0 }}>{note}</p>}
       {v.positions.length === 0 ? <p className="muted" style={{ margin: 0 }}>{ar ? "فاضية للحين. بعد أي قرار «شراء» أو خطة مبلغ اضغط «أضف للمحفظة الافتراضية»." : "Empty for now. After a Buy call or a budget plan, press “Add to the virtual portfolio”."}</p> : <>
         <div className="row" style={{ gap: 10 }}>
           {v.totals.map((t) => (

@@ -227,3 +227,16 @@ def test_removed_llm_key_is_no_longer_active(monkeypatch):
     assert r.status_code == 200
     assert llm_key("anthropic")[0] is None
     assert "ANTHROPIC_API_KEY" not in __import__("os").environ
+
+
+def test_closing_a_paper_position_without_a_price_is_refused(monkeypatch):
+    # With no quote, the position was closed at its entry price: a made-up 0% result.
+    from veyro import extras
+    with db.tx() as c:
+        c.execute("DELETE FROM paper")
+    extras.paper_add("AAPL", 2)
+    pid = db.q1("SELECT id FROM paper")["id"]
+    monkeypatch.setattr(market, "last_price", lambda t: None)
+    with pytest.raises(ValueError):
+        extras.paper_close(pid)
+    assert db.q1("SELECT closed_at FROM paper WHERE id=?", (pid,))["closed_at"] is None

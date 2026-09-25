@@ -20,7 +20,7 @@ def advance_until(page, cond, timeout=240):
 
 with sync_playwright() as p:
     b = p.chromium.launch(executable_path=__import__("os").environ.get("CHROMIUM") or None)
-    ctx = b.new_context(viewport={"width": 1440, "height": 1000})
+    ctx = b.new_context(viewport={"width": 1440, "height": 1000}, locale="ar-SA")
     page = ctx.new_page()
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     page.on("pageerror", lambda e: errors.append(str(e)))

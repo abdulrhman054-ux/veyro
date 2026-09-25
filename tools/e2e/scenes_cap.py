@@ -4,7 +4,7 @@ S = str(__import__("pathlib").Path(__file__).resolve().parents[2] / "verificatio
 seen = {}
 with sync_playwright() as p:
     b = p.chromium.launch(executable_path=__import__("os").environ.get("CHROMIUM") or None)
-    page = b.new_page(viewport={"width": 1440, "height": 1000})
+    page = b.new_page(viewport={"width": 1440, "height": 1000}, locale="ar-SA")
     errs = []
     page.on("pageerror", lambda e: errs.append(str(e)))
     page.goto("http://127.0.0.1:8766"); page.wait_for_timeout(1200)

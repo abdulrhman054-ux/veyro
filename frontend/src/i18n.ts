@@ -183,3 +183,11 @@ export function fmtDate(iso: string | null | undefined, lang: Lang, time = true)
   return new Intl.DateTimeFormat(lang === "ar" ? "ar-SA-u-nu-latn-ca-gregory" : "en-US",
     time ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "medium" }).format(d);
 }
+
+/** "1 share" / "5 shares"; Arabic: سهم واحد / سهمين / 3–10 أسهم / 11+ سهم. */
+export function sharesText(n: number, lang: Lang) {
+  if (lang === "en") return `${fmtNum(n, lang)} ${n === 1 ? "share" : "shares"}`;
+  if (n === 1) return "سهم واحد";
+  if (n === 2) return "سهمين";
+  return `${fmtNum(n, lang)} ${n >= 3 && n <= 10 ? "أسهم" : "سهم"}`;
+}

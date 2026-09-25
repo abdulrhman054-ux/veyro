@@ -1108,7 +1108,10 @@ def paper_plan(p: PaperPlanIn):
 @app.post("/api/paper/{pid}/close")
 def paper_close(pid: int):
     from . import extras
-    return extras.paper_close(pid)
+    try:
+        return extras.paper_close(pid)
+    except ValueError:
+        return JSONResponse({"ok": False, "code": "no_price"})
 
 
 @app.delete("/api/paper/{pid}")

@@ -3,7 +3,7 @@ S=str(__import__("pathlib").Path(__file__).resolve().parents[2] / "verification"
 import sys
 L = sys.argv[1]
 with sync_playwright() as p:
-    b=p.chromium.launch(executable_path=__import__("os").environ.get("CHROMIUM") or None); pg=b.new_page(viewport={"width":1440,"height":1300})
+    b=p.chromium.launch(executable_path=__import__("os").environ.get("CHROMIUM") or None); pg=b.new_page(viewport={"width":1440,"height":1300}, locale="ar-SA")
     errs=[]; pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("console", lambda m: errs.append(m.text) if m.type=="error" else None)
     pg.goto("http://127.0.0.1:8766"); pg.wait_for_timeout(1200)
     if pg.locator(".modal-bg button.primary").count(): pg.locator(".modal-bg button.primary").first.click()
