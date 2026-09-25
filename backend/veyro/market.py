@@ -125,16 +125,28 @@ def history(ticker: str, period: str = "3mo") -> dict | None:
     return _cached(f"hist:{src}:{ticker}:{period}", 600, fetch)
 
 
+def dividends_or_none(ticker: str) -> list[tuple[str, float]] | None:
+    """Cash dividends per share as (ex-date, amount) from Yahoo; [] when it pays none; None when Yahoo couldn't be
+    asked (so "no data" is never mistaken for "no dividends"). Cached for a day; a failure for 10 minutes."""
+    key = f"div:{ticker}"
+    with _clock:
+        hit = _cache.get(key)
+    if hit and time.time() - hit[0] < (86400 if hit[1] is not None else 600):
+        return hit[1]
+    try:
+        d = yf.Ticker(ticker).dividends
+        val = [(i.strftime("%Y-%m-%d"), float(v)) for i, v in d.items() if v == v] if d is not None else []
+    except Exception as e:  # noqa: BLE001
+        log.info("dividends unavailable for %s: %s", ticker, type(e).__name__)
+        val = None
+    with _clock:
+        _cache[key] = (time.time(), val)
+    return val
+
+
 def dividends(ticker: str) -> list[tuple[str, float]]:
-    """Cash dividends per share as (ex-date, amount), from Yahoo; [] when none or unavailable. Cached for a day."""
-    def fetch():
-        try:
-            d = yf.Ticker(ticker).dividends
-            return [(i.strftime("%Y-%m-%d"), float(v)) for i, v in d.items() if v == v] if d is not None else []
-        except Exception as e:  # noqa: BLE001
-            log.info("dividends unavailable for %s: %s", ticker, type(e).__name__)
-            return []
-    return _cached(f"div:{ticker}", 86400, fetch)
+    """Like dividends_or_none, with "unavailable" treated as none (the virtual portfolio shows what it received)."""
+    return dividends_or_none(ticker) or []
 
 
 def sector(ticker: str) -> str | None:

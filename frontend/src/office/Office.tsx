@@ -27,7 +27,24 @@ type BPick = { symbol: string; name_en: string; name_ar: string; sector: string;
 type ScanView = { id: string; tickers: string[]; source: Candidate[] | null; sessions: string[]; results: Record<number, string | null>;
   ranking: { ticker: string; rating: string | null; session_id: string; status: string }[] | null; done: boolean; stopped?: boolean;
   budget?: Budget | null; beginner?: boolean; prescreen?: Prescreen[] | null; reused?: Record<number, boolean>; capped?: boolean };
-type Prescreen = { ticker: string; score: number | null; trend?: number; ret_3m?: number; vol?: number; mode?: string; ret_12_1?: number; max_drop?: number };
+type Prescreen = { ticker: string; score: number | null; trend?: number; ret_3m?: number; vol?: number; mode?: string; ret_12_1?: number; max_drop?: number;
+  pe?: number | null; peer_pe?: number | null; pe_vs?: "sector" | "market" | null; peers?: number | null; sector?: string | null;
+  div_yield?: number | null; yield_unusual?: boolean; value_note?: string | null };
+
+/** One line for the "value" pre-screen: P/E against its peers and the dividends actually paid, or why it isn't scored. */
+function valueLine(p: Prescreen, lang: string) {
+  const ar = lang === "ar";
+  const why: Record<string, [string, string]> = {
+    loss_making: ["خسرانة آخر 12 شهر، فما لها مكرر ربحية", "made a loss over 12 months, so no P/E"],
+    no_data: ["بيانات غير متوفرة", "no data available"], not_equity: ["مو سهم شركة", "not a company share"],
+    no_pe: ["مكرر الربحية غير متوفر", "no P/E available"], no_peers: ["ما فيه شركات كافية للمقارنة", "too few companies to compare with"],
+  };
+  if (p.score == null) { const w = why[p.value_note ?? "no_data"] ?? why.no_data; return ar ? w[0] : w[1]; }
+  const vs = p.pe_vs === "sector" ? (ar ? `قطاعه ${p.peer_pe}` : `its sector ${p.peer_pe}`) : (ar ? `السوق كله ${p.peer_pe} (شركات قطاعه قليلة)` : `whole market ${p.peer_pe} (few sector peers)`);
+  const y = p.div_yield == null ? (ar ? "التوزيعات غير معروفة" : "dividends unknown")
+    : `${ar ? "عائد التوزيعات" : "yield"} ${(p.div_yield * 100).toFixed(1)}%${p.yield_unusual ? (ar ? " (عالي بشكل غير عادي، غالباً توزيع لمرة وحدة)" : " (unusually high, likely one-off)") : ""}`;
+  return `${ar ? "مكرر الربحية" : "P/E"} ${p.pe} · ${vs} · ${y}`;
+}
 export type Budget = { amount: number; currency: "USD" | "SAR" };
 
 const FORM_KEY = "veyro.office.form.v1";
@@ -56,7 +73,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
   // Economy: a free price pre-screen, then the full (paid) team only on the best few.
   const [economy, setEconomy] = useState(false);
   const [econTop, setEconTop] = useState(3);
-  const [econMode, setEconMode] = useState<"momentum" | "steady">("momentum");
+  const [econMode, setEconMode] = useState<"momentum" | "steady" | "value">("momentum");
   // Reuse: this stock was already analysed today with the same models.
   const [reuseOffer, setReuseOffer] = useState<{ id: string; ticker: string; rating: string | null; at: string } | null>(null);
   useEffect(() => {
@@ -453,10 +470,11 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
             <select className="field" style={{ height: 32, padding: "0 6px", marginInlineStart: 6 }} value={econTop} disabled={running || !economy}
               onChange={(e) => setEconTop(Number(e.target.value))}>{[1, 2, 3, 5, 8, 10].map((k) => <option key={k} value={k}>{k}</option>)}</select>
             <select className="field" style={{ height: 32, padding: "0 6px", marginInlineStart: 6 }} value={econMode} disabled={running || !economy}
-              aria-label={lang === "ar" ? "طريقة الفحص المجاني" : "Pre-screen method"} onChange={(e) => setEconMode(e.target.value as "momentum" | "steady")}
-              title={lang === "ar" ? "زخم: اللي صعد مؤخراً. ثابت: قوة على سنة بدون آخر شهر، مع عقوبة للتذبذب والهبوط الكبير." : "Momentum: what rose lately. Steady: 12-month strength skipping the last month, penalising swings and big drops."}>
+              aria-label={lang === "ar" ? "طريقة الفحص المجاني" : "Pre-screen method"} onChange={(e) => setEconMode(e.target.value as "momentum" | "steady" | "value")}
+              title={lang === "ar" ? "زخم: اللي صعد مؤخراً. ثابت: قوة على سنة بدون آخر شهر، مع عقوبة للتذبذب والهبوط الكبير. قيمة: مكرر الربحية مقارنة بقطاعه في نفس السوق، وعائد التوزيعات الفعلي لآخر 12 شهر." : "Momentum: what rose lately. Steady: 12-month strength skipping the last month, penalising swings and big drops. Value: P/E against its own sector in the same market, plus the dividends actually paid in the last 12 months."}>
               <option value="momentum">{lang === "ar" ? "زخم" : "momentum"}</option>
               <option value="steady">{lang === "ar" ? "ثابت" : "steady"}</option>
+              <option value="value">{lang === "ar" ? "قيمة" : "value"}</option>
             </select>
           </label>
         )}
@@ -632,7 +650,8 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
                   <li key={p.ticker} style={{ opacity: scan.tickers.includes(p.ticker) ? 1 : 0.5 }}>
                     <b className="pixel ltr" style={{ minWidth: 60 }}>{p.ticker}</b>
                     <ShariaBadge symbol={p.ticker} />
-                    <span className="ltr muted" style={{ fontSize: 12 }}>{p.score == null ? (lang === "ar" ? "بيانات غير كافية" : "not enough data")
+                    <span className="ltr muted" style={{ fontSize: 12 }}>{p.mode === "value" ? valueLine(p, lang)
+                      : p.score == null ? (lang === "ar" ? "بيانات غير كافية" : "not enough data")
                       : p.mode === "steady"
                         ? `${lang === "ar" ? "سنة بدون آخر شهر" : "12-1m"} ${fmtPct(p.ret_12_1 ?? 0, lang)} · ${lang === "ar" ? "أكبر هبوط" : "max drop"} ${fmtPct(-(p.max_drop ?? 0), lang)}`
                         : `${lang === "ar" ? "3 شهور" : "3m"} ${fmtPct(p.ret_3m ?? 0, lang)} · ${lang === "ar" ? "اتجاه" : "trend"} ${fmtPct(p.trend ?? 0, lang)}`}</span>

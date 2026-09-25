@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS paper (
 CREATE TABLE IF NOT EXISTS sharia_cache (      -- optional Sharia screen: raw free fundamentals per symbol, with the fetch date
   symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS valuation_cache (   -- free pre-screen "value" mode: light company facts per symbol
+  symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS price_alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   symbol TEXT NOT NULL, op TEXT NOT NULL,       -- 'above' | 'below'

@@ -82,10 +82,48 @@ with sync_playwright() as p:
     page.locator("nav button", has_text="History").click(); page.wait_for_timeout(1500)
     check("trust dashboard marks young calls as waiting", page.locator("[data-waiting]").count() > 0)
 
-    # --- steady pre-screen option
+    # --- steady and value pre-screen options
     page.locator("nav button", has_text="Office").click(); page.wait_for_timeout(500)
     page.locator(".seg button").nth(2).click()
-    check("economy mode offers a 'steady' pre-screen", page.locator("select[aria-label='Pre-screen method'] option[value=steady]").count() == 1)
+    check("economy mode offers 'steady' and 'value' pre-screens", page.locator("select[aria-label='Pre-screen method'] option[value=steady]").count() == 1
+          and page.locator("select[aria-label='Pre-screen method'] option[value=value]").count() == 1)
+
+    def value_run(tickers, name):
+        for _ in range(3):   # a ranking or guide dialog from the previous run may still be open
+            if not page.locator(".modal-bg").count():
+                break
+            page.locator(".modal-bg button.primary").last.click(); page.wait_for_timeout(300)
+        page.locator("nav button", has_text="Office").click(); page.wait_for_timeout(400)
+        page.locator(".seg button").nth(2).click()
+        if page.locator(".picklist button.linkish").count(): page.locator(".picklist button.linkish").click()   # clear all
+        for x in list(page.locator(".picklist .chip.pick .x").all()):
+            x.click()
+        add = page.locator(".tsearch input").first
+        for tk in tickers:
+            add.fill(tk); add.press("Enter"); page.wait_for_timeout(150)
+        page.locator("label.budget input").fill("")
+        eco = page.locator(".startbar label.check", has_text="Economy")
+        eco.locator("input[type=checkbox]").check()
+        eco.locator("select").first.select_option("1")
+        page.locator("select[aria-label='Pre-screen method']").select_option("value")
+        page.locator(".startbar button.primary").click(); page.wait_for_timeout(500)
+        if page.locator("[role=alertdialog] button.primary").count(): page.locator("[role=alertdialog] button.primary").first.click()
+        page.wait_for_timeout(2500)
+        rows = page.locator(".side .card", has_text="Free pre-screen").locator("li")
+        lines = [rows.nth(i).inner_text().replace("\n", " ") for i in range(rows.count())]
+        page.screenshot(path=OUT + f"r4_value_{name}.png", full_page=True)
+        advance_until(page, lambda: page.locator(".modal-bg").count() > 0, 300)
+        return lines
+
+    us = value_run(["AAPL", "MSFT", "NVDA", "KO"], "us")
+    check("value (US): each line shows P/E against its sector and the yield", any("P/E 30" in x and "its sector" in x for x in us)
+          and any(x.startswith("KO") and "yield 1.5%" in x for x in us), " || ".join(us))
+    check("value (US): the loss-making company goes last with its reason", bool(us) and us[-1].startswith("NVDA") and "made a loss" in us[-1], us[-1] if us else "")
+    sa = value_run(["2222.SR", "7010.SR", "1180.SR", "1211.SR"], "sa")
+    check("value (Saudi): compared with Saudi peers (bank vs Saudi banks)", any(x.startswith("1180.SR") and "P/E 11" in x and "its sector 12.5" in x for x in sa),
+          " || ".join(sa))
+    check("value (Saudi): a sector with too few Saudi peers falls back to the whole market", any(x.startswith("2222.SR") and "whole market" in x for x in sa))
+    check("value (Saudi): the loss-making company goes last", bool(sa) and sa[-1].startswith("1211.SR") and "made a loss" in sa[-1], sa[-1] if sa else "")
     ctx.close()
 
     # --- phone width: readable caption under the stage

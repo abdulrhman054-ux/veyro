@@ -8,3 +8,6 @@ def _offline(monkeypatch):
     monkeypatch.setattr(market, "history", lambda t, period="3mo": None)
     monkeypatch.setattr(market, "sector", lambda t: None)
     monkeypatch.setattr(market, "dividends", lambda t: [])
+    monkeypatch.setattr(market, "dividends_or_none", lambda t: [])
+    from veyro import valuation
+    monkeypatch.setattr(valuation, "_fetch", lambda t: {"error": "unavailable"})

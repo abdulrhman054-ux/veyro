@@ -33,6 +33,23 @@ FUND = {"AAPL": _co("Consumer Electronics"), "MSFT": _co("Software - Infrastruct
         "2280.SR": _co("Packaged Foods"), "1211.SR": _co("Other Industrial Metals & Mining"), "2222.SR": _co("Oil & Gas Integrated"),
         "7010.SR": _co("Telecom Services", total_debt=450.0), "1120.SR": _co("Banks - Regional"), "1180.SR": _co("Banks - Diversified")}
 sharia.fetch_raw = lambda s: FUND.get(s) or {"error": "unavailable", "fetched_at": "2026-09-25T00:00:00+00:00"}
+# pre-screen "value" mode: sample company facts and dividends (Yahoo is blocked here). NVDA is made loss-making.
+from veyro import valuation
+def _v(sector, pe, eps=1.0, cur="USD"):
+    return {"quote_type": "EQUITY", "sector": sector, "currency": cur, "financial_currency": cur, "trailing_pe": pe, "trailing_eps": eps}
+VAL = {"AAPL": _v("Technology", 30), "MSFT": _v("Technology", 35), "NVDA": _v("Technology", None, eps=-1.0), "GOOGL": _v("Communication Services", 22),
+       "META": _v("Communication Services", 26), "KO": _v("Consumer Defensive", 24), "PG": _v("Consumer Defensive", 25), "WMT": _v("Consumer Defensive", 38),
+       "PEP": _v("Consumer Defensive", 21), "JPM": _v("Financial Services", 12), "V": _v("Financial Services", 30), "AMZN": _v("Consumer Cyclical", 40),
+       "JNJ": _v("Healthcare", 17), "INTC": _v("Technology", 60), "AMD": _v("Technology", 90),
+       "2222.SR": _v("Energy", 16, cur="SAR"), "2280.SR": _v("Consumer Defensive", 22, cur="SAR"), "2050.SR": _v("Consumer Defensive", 30, cur="SAR"),
+       "7010.SR": _v("Communication Services", 14, cur="SAR"), "7020.SR": _v("Communication Services", 18, cur="SAR"),
+       "1120.SR": _v("Financial Services", 18, cur="SAR"), "1180.SR": _v("Financial Services", 11, cur="SAR"), "1150.SR": _v("Financial Services", 14, cur="SAR"),
+       "1010.SR": _v("Financial Services", 10, cur="SAR"), "1211.SR": _v("Basic Materials", None, eps=-0.5, cur="SAR"), "2010.SR": _v("Basic Materials", 40, cur="SAR")}
+valuation._fetch = lambda s: VAL.get(s) or {"error": "unavailable"}
+DIVS = {"KO": [("2026-03-01", 0.51), ("2026-06-01", 0.51)], "2222.SR": [("2026-03-01", 0.4), ("2026-06-01", 0.4)],
+        "7010.SR": [("2026-04-01", 1.0)]}
+market.dividends_or_none = lambda s: DIVS.get(s, [])
+market.dividends = lambda s: DIVS.get(s, [])
 # slow the fake model a little so animations/stop can be observed
 from tests import fake_llm
 _orig = fake_llm.FakeChat._generate

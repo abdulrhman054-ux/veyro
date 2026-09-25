@@ -56,14 +56,17 @@ def replay(sid: str) -> None:
 
 
 # ---------------------------------------------------------------- economy pre-screen (free, deterministic)
-PRESCREEN_MODES = ("momentum", "steady")
+PRESCREEN_MODES = ("momentum", "steady", "value")
 
 
 def prescreen(tickers: list[str], mode: str = "momentum") -> list[dict]:
     """Rank by recent price behaviour only (free Yahoo data, no model). A filter to decide where to spend, not a verdict.
     momentum: trend vs the 50-day average x2 + 3-month return - 0.3 x volatility (favours what already ran up).
     steady:   12-month return skipping the last month - 0.5 x volatility - 0.5 x worst 6-month drop
-              (favours steady long-run strength over a recent spike)."""
+              (favours steady long-run strength over a recent spike).
+    value:    P/E against the company's own sector in its own market (log of peer median / P/E, clipped to +-1)
+              + 5 x dividend yield (last 12 months, capped at 10%) - 0.3 x volatility. Loss-making companies and
+              those without data go last with the reason (see valuation.py)."""
     from concurrent.futures import ThreadPoolExecutor
     mode = mode if mode in PRESCREEN_MODES else "momentum"
 
@@ -92,6 +95,19 @@ def prescreen(tickers: list[str], mode: str = "momentum") -> list[dict]:
         trend = last / ma50 - 1
         score = trend * 2 + r3m - vol * 0.3
         return {"ticker": t, "score": round(score, 4), "trend": round(trend, 4), "ret_3m": round(r3m, 4), "vol": round(vol, 4), "mode": mode}
+    if mode == "value":
+        from . import valuation
+
+        def prices(t):
+            h = market.history(t, "6mo")
+            return t, (h or {}).get("closes") or []
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            closes = dict(ex.map(prices, tickers))
+        vols = {t: (vol_of(cs) if len(cs) >= 30 else None) for t, cs in closes.items()}
+        v = valuation.score(tickers, closes, vols)
+        rows = [{"ticker": t, "mode": mode, "vol": round(vols[t], 4) if vols[t] is not None else None, **v[t],
+                 **({"note": "no_data"} if v[t]["score"] is None and v[t]["value_note"] in (None, "no_data") else {})} for t in tickers]
+        return sorted(rows, key=lambda r: (r["score"] is None, -(r["score"] or 0)))
     with ThreadPoolExecutor(max_workers=8) as ex:
         rows = list(ex.map(one, tickers))
     return sorted(rows, key=lambda r: (r["score"] is None, -(r["score"] or 0)))   # no data goes last
