@@ -8,6 +8,8 @@ isolated data dir, port 8766) and runs three Playwright suites:
 - `new_feats.py`: virtual portfolio, reuse of today's analysis, economy pre-screen, price alert from a live
   tick, data-source switch, PDF button.
 - `round3.py`: glossary modal and term popovers, trust dashboard.
+- `review_fixes.py`: 2026-09 review fixes (first-run language, both markets, History currency, trust waiting) and the optional Sharia screen on/off.
+- `round4.py`: index-fund option, cost-vs-amount warning, plan caps and fees, both markets in the header, verdict track record, steady pre-screen, phone-width captions.
 
 `scenes_cap.py` and `live_cap.py` capture screenshots of every office scene and the live board
 (`verification/e2e/`). Note: `ui_server.py` makes the fake model output say "Buy"; a test that re-runs a ticker
