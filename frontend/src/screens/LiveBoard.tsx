@@ -4,6 +4,7 @@ import { StarButton, useAssistant } from "../assistant/Assistant";
 import { PageHeader } from "../components/PageHeader";
 import { fmtNum } from "../i18n";
 import { usePrefs } from "../prefs";
+import { AlertButton, AlertList, type PriceAlert } from "../extras/PriceAlerts";
 
 type Item = { symbol: string; en: string; ar: string; unit?: string; derived?: boolean };
 type Catalog = { boards: Record<"us" | "sa", Item[]>; indices: Record<"us" | "sa", Item[]>; metals: Item[]; source: string;
@@ -28,6 +29,8 @@ export function LiveBoard({ active, onAnalyze }: { active: boolean; onAnalyze: (
   const [conn, setConn] = useState<"connecting" | "live" | "snapshot" | "off">("connecting");
   const [, setNow] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
+  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  useEffect(() => { if (active) api.get<{ alerts: PriceAlert[] }>("/api/price_alerts").then((r) => setAlerts(r.alerts)).catch(() => {}); }, [active]);
 
   useEffect(() => { api.get<Catalog>("/api/live/catalog").then(setCat).catch(() => {}); }, []);
   useEffect(() => { const h = setInterval(() => setNow((n) => n + 1), 1000); return () => clearInterval(h); }, []);
@@ -102,6 +105,7 @@ export function LiveBoard({ active, onAnalyze }: { active: boolean; onAnalyze: (
         </span>
       </div>
 
+      <AlertList alerts={alerts} onChange={setAlerts} />
       <section className="stack" style={{ gap: 8 }} aria-label={ar ? "المؤشرات" : "Indices"}>
         <div className="live-grid idx">
           {cat.indices[market].map((it) => <Tile key={it.symbol} it={it} q={quotes[it.symbol]} path={ticks[it.symbol]} fl={flash[it.symbol]} lang={lang} compact />)}
@@ -112,14 +116,15 @@ export function LiveBoard({ active, onAnalyze }: { active: boolean; onAnalyze: (
         <h2 style={{ fontSize: 20, margin: 0 }}>{ar ? "الأسهم" : "Stocks"}</h2>
         <div className="live-grid">
           {[...favItems, ...cat.boards[market]].map((it) => <Tile key={it.symbol} it={it} q={quotes[it.symbol]} path={ticks[it.symbol]} fl={flash[it.symbol]} lang={lang}
-            onAnalyze={() => onAnalyze(it.symbol)} fav={favorites.includes(it.symbol)} />)}
+            onAnalyze={() => onAnalyze(it.symbol)} fav={favorites.includes(it.symbol)} onAlerts={setAlerts} />)}
         </div>
       </section>
 
       <section className="stack" style={{ gap: 8 }}>
         <h2 style={{ fontSize: 20, margin: 0 }}>{ar ? "المعادن" : "Metals"}</h2>
         <div className="live-grid">
-          {cat.metals.map((it) => <Tile key={it.symbol} it={it} q={quotes[it.symbol]} path={ticks[it.symbol]} fl={flash[it.symbol]} lang={lang} />)}
+          {cat.metals.map((it) => <Tile key={it.symbol} it={it} q={quotes[it.symbol]} path={ticks[it.symbol]} fl={flash[it.symbol]} lang={lang}
+            onAlerts={it.derived ? undefined : setAlerts} />)}
         </div>
         <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>{ar
           ? "المعادن من العقود الآجلة في بورصة COMEX/NYMEX (دولار للأونصة، والنحاس دولار للرطل). سعر الجرام بالريال محسوب من سعر الذهب وسعر صرف الريال، وما يشمل مصنعية أو ضريبة."
@@ -142,8 +147,8 @@ function ago(iso: string | undefined, lang: "ar" | "en") {
   return new Intl.DateTimeFormat(lang === "ar" ? "ar-SA-u-nu-latn-ca-gregory" : "en-US", { dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
 }
 
-function Tile({ it, q, path, fl, lang, compact, onAnalyze, fav }: { it: Item; q?: Quote; path?: number[]; fl?: { dir: "up" | "down"; k: number };
-  lang: "ar" | "en"; compact?: boolean; onAnalyze?: () => void; fav?: boolean }) {
+function Tile({ it, q, path, fl, lang, compact, onAnalyze, fav, onAlerts }: { it: Item; q?: Quote; path?: number[]; fl?: { dir: "up" | "down"; k: number };
+  lang: "ar" | "en"; compact?: boolean; onAnalyze?: () => void; fav?: boolean; onAlerts?: (a: PriceAlert[]) => void }) {
   const ar = lang === "ar";
   const ch = q?.change_pct;
   const dir = ch == null ? "" : ch >= 0 ? "pos" : "neg";
@@ -170,6 +175,9 @@ function Tile({ it, q, path, fl, lang, compact, onAnalyze, fav }: { it: Item; q?
       )}
       <div className="row" style={{ justifyContent: "space-between", gap: 6 }}>
         <span className="muted when">{ago(q?.time, lang)}</span>
+        {(onAnalyze || onAlerts) && <span className="row" style={{ gap: 4 }}>
+          {onAlerts && <AlertButton symbol={it.symbol} price={q?.price} onChange={onAlerts} />}
+        </span>}
         {onAnalyze && <span className="row" style={{ gap: 4 }}>
           <StarButton ticker={it.symbol} />
           <button className="ghost btn mini" onClick={onAnalyze}>{ar ? "حلّله" : "Analyse"}</button>

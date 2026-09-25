@@ -46,23 +46,42 @@ def _cached(key: str, ttl: float, fn):
 
 
 def last_price(ticker: str) -> dict | None:
-    """{'price', 'currency', 'as_of', 'source'} or None."""
+    """{'price', 'currency', 'as_of', 'source'[, 'prev_close']} or None. Uses the data source chosen in
+    Settings; anything it doesn't cover comes from Yahoo."""
+    from . import datasources
+    src = datasources.current()
+
     def fetch():
+        if src != "yahoo":
+            q = datasources.quote(ticker)
+            if q:
+                return q
         try:
             fi = yf.Ticker(ticker).fast_info
             p = fi["lastPrice"]
             if p is None or p != p or p <= 0:
                 return None
-            return {"price": float(p), "currency": fi.get("currency") or "USD",
+            pc = fi.get("previousClose")
+            return {"price": float(p), "currency": fi.get("currency") or "USD", "prev_close": float(pc) if pc and pc == pc else None,
                     "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds"), "source": SOURCE}
         except Exception as e:  # noqa: BLE001
             log.info("price unavailable for %s: %s", ticker, type(e).__name__)
             return None
-    return _cached(f"px:{ticker}", 60, fetch)
+    return _cached(f"px:{src}:{ticker}", 60, fetch)
+
+
+PERIOD_DAYS = {"1mo": 23, "3mo": 64, "6mo": 128, "1y": 253, "2y": 505, "5y": 1260, "max": 100000}
 
 
 def history(ticker: str, period: str = "3mo") -> dict | None:
+    from . import datasources
+    src = datasources.current()
+
     def fetch():
+        if src != "yahoo":
+            h = datasources.history(ticker, PERIOD_DAYS.get(period, 64))
+            if h:
+                return h
         try:
             h = yf.Ticker(ticker).history(period=period, auto_adjust=False)
             if h is not None and not h.empty:
@@ -75,7 +94,7 @@ def history(ticker: str, period: str = "3mo") -> dict | None:
         except Exception as e:  # noqa: BLE001
             log.info("history unavailable for %s: %s", ticker, type(e).__name__)
             return None
-    return _cached(f"hist:{ticker}:{period}", 600, fetch)
+    return _cached(f"hist:{src}:{ticker}:{period}", 600, fetch)
 
 
 def close_on_or_before(ticker: str, date_iso: str) -> float | None:

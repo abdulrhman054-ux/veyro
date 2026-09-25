@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PaperPortfolio } from "../extras/Paper";
 import { api, type SessionRow } from "../api";
 import { RATING, fmtDate, fmtPct, fmtUsd } from "../i18n";
 import { usePrefs } from "../prefs";
@@ -41,6 +42,7 @@ export function HistoryScreen({ onOpen, onResume, settings, active = true }: { o
     <div className="stack" style={{ gap: 18 }}>
     <PageHeader host="Bruno" title={t.historyTitle} sub={t.historySub}
       say={lang === "ar" ? "بدون تجميل… غرر" : "No sugar-coating… grr"} />
+      <PaperPortfolio active={active} />
     <div className="report">
       <div className="right">
         <section className="card stack">

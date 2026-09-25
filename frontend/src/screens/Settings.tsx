@@ -222,6 +222,17 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
           </span>
         </summary>
         <div className="stack" style={{ gap: 20, marginTop: 16 }}>
+          <section className="card stack" aria-labelledby="ds-h">
+            <h2 id="ds-h" style={{ fontSize: 22 }}>{lang === "ar" ? "مصدر بيانات السوق" : "Market data source"}</h2>
+            <Seg label={lang === "ar" ? "مصدر البيانات" : "Data source"} value={settings.data_source ?? "yahoo"}
+              options={[["yahoo", "Yahoo Finance"], ["stooq", "Stooq"], ["alpha_vantage", "Alpha Vantage"]]}
+              onPick={(v) => put({ data_source: v } as never)} />
+            <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.8 }}>{lang === "ar"
+              ? "Yahoo: الافتراضي، يغطي السعودي والأمريكي والمعادن والبث المباشر. Stooq: مجاني بدون مفتاح، أسهم أمريكية ومؤشرات ومعادن فورية وعملات، بدون تداول. Alpha Vantage: بمفتاحك (المجاني حوالي 25 طلب باليوم)، أسهم أمريكية، ويصير هو مصدر TradingAgents في التحليل. أي شي ما يغطيه المصدر المختار يجي من Yahoo، وكل سعر يذكر مصدره."
+              : "Yahoo: the default; covers Saudi, US, metals and the live stream. Stooq: free, no key; US stocks, indices, spot metals and FX, no Tadawul. Alpha Vantage: your key (free tier about 25 requests a day), US stocks, and it becomes TradingAgents' own data vendor for the analysis. Anything the chosen source doesn't cover comes from Yahoo, and every price names its source."}</p>
+            {settings.data_source === "alpha_vantage" && !settings.data_keys.alpha_vantage.present && (
+              <div className="warnstrip">{lang === "ar" ? "أضف مفتاح Alpha Vantage تحت (مصادر بيانات اختيارية)، وإلا نستخدم Yahoo." : "Add your Alpha Vantage key below (optional data sources); until then Yahoo is used."}</div>)}
+          </section>
           <TeamSettings settings={settings} onChange={onChange} />
           {extra}
         </div>

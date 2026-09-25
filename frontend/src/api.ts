@@ -43,7 +43,7 @@ export type Settings = {
     recommend?: { quick: string | null; deep: string | null; why_ar: string; why_en: string } | null }>;
   reasoning_depth: string;
   anthropic_workspace_id: string | null;
-  keys: Record<string, KeyInfo>; estimate: Estimate; pricing?: Record<string, [number, number]>; limits?: { batch: number; screen: number };
+  keys: Record<string, KeyInfo>; estimate: Estimate; pricing?: Record<string, [number, number]>; limits?: { batch: number; screen: number }; data_source?: string;
   team: { analysts: string[]; debate_rounds: number; risk_rounds: number };
   data_keys: Record<"fred" | "alpha_vantage" | "typesafe", { present: boolean; masked: string | null }>;
 };

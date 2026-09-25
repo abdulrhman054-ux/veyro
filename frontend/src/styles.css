@@ -680,3 +680,16 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
 .dotlive.on { background: #E0453A; animation: pulse 1s steps(2) infinite; }
 :root[data-intensity="off"] .live-tile .flash, :root[data-intensity="off"] .dotlive.on, :root[data-intensity="off"] .navlive { animation: none; }
 .live-bar .segbtns button { white-space: nowrap; }
+
+/* ---------- virtual portfolio, price alerts, print ---------- */
+.paper-total { display: flex; flex-direction: column; gap: 2px; background: var(--cream); border-radius: 16px; padding: 10px 16px; min-width: 180px; }
+.paper-total b { font-size: 22px; }
+.alertform { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.alertform .field { height: 32px; font-size: 13px; padding: 0 8px; width: 110px; }
+@media print {
+  .topbar, .report-nav, .toast, .startbar, .pagehead-lane, .no-print, button { display: none !important; }
+  body { background: #FFFFFF !important; zoom: 1 !important; }
+  .card, .live-tile { box-shadow: none !important; border: 1px solid #CCC; break-inside: avoid; }
+  .report { display: block !important; } .report > .left { width: auto !important; }
+  .detail { max-height: none !important; overflow: visible !important; }
+}

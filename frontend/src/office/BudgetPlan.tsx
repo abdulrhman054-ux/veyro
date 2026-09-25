@@ -3,6 +3,7 @@ import { api } from "../api";
 import { SpriteSvg } from "../art/Sprite";
 import { RATING, fmtNum } from "../i18n";
 import { usePrefs } from "../prefs";
+import { AddToPaper } from "../extras/Paper";
 
 type Names = { ar: string; en: string };
 type Reasons = Partial<Record<"ar" | "en", string | null>>;
@@ -101,6 +102,10 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
             </tbody>
           </table>
         </div>
+      )}
+      {plan.rows.some((r) => r.shares > 0) && (
+        <AddToPaper items={plan.rows.map((r) => ({ ticker: r.ticker, shares: r.shares, session_id: r.session_id, rating: r.rating }))}
+          label={ar ? "📒 نفّذ الخطة على المحفظة الافتراضية" : "📒 Run this plan on the virtual portfolio"} />
       )}
       <div className="row" style={{ justifyContent: "space-between" }}>
         <span>{ar ? "يبقى نقد" : "Left in cash"}: <b className="ltr">{money(plan.cash_left, cur, lang)}</b></span>

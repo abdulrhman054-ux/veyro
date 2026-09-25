@@ -145,3 +145,47 @@ def test_live_hub_ticks_change_and_gold_per_gram():
     hub.on_tick({"id": "GC=F", "price": 3110.34768, "previous_close": 3110.34768})
     assert round(hub.quotes["GOLD24_SAR_G"]["price"], 2) == 375.0          # 3110.35 $/oz * 3.75 / 31.1035 g
     assert round(hub.quotes["GOLD21_SAR_G"]["price"], 2) == 328.13
+
+
+def test_paper_portfolio_return_and_alpha(monkeypatch):
+    from veyro import extras
+    px = {"AAPL": 100.0, "SPY": 500.0}
+    monkeypatch.setattr(market, "last_price", lambda t: {"price": px[t], "currency": "USD"} if t in px else None)
+    extras.paper_add("AAPL", 3, None, "Buy")
+    px.update({"AAPL": 110.0, "SPY": 510.0})
+    v = extras.paper_view()
+    p = next(x for x in v["positions"] if x["ticker"] == "AAPL" and not x["closed_at"])
+    assert round(p["ret"], 4) == 0.10 and round(p["bench_ret"], 4) == 0.02 and round(p["alpha"], 4) == 0.08
+    v = extras.paper_close(p["id"])
+    assert next(x for x in v["positions"] if x["id"] == p["id"])["exit_price"] == 110.0
+
+
+def test_price_alert_fires_once():
+    from veyro import assistant, extras
+    assistant.init()
+    extras.add_price_alert("GC=F", "above", 3000)
+    extras.check_price("GC=F", 2990)
+    assert all(a["triggered_at"] is None for a in extras.price_alerts() if a["symbol"] == "GC=F")
+    extras.check_price("GC=F", 3001)
+    extras.check_price("GC=F", 3010)
+    fired = [a for a in assistant.alerts() if a["kind"] == "price" and a["ticker"] == "GC=F"]
+    assert len(fired) == 1
+
+
+def test_prescreen_ranks_uptrend_first(monkeypatch):
+    from veyro import extras
+    up = [100 + i for i in range(120)]
+    down = [220 - i for i in range(120)]
+    monkeypatch.setattr(market, "history", lambda t, p="3mo": {"closes": up if t == "UP" else down if t == "DN" else []})
+    rows = extras.prescreen(["DN", "UP", "NONE"])
+    assert [r["ticker"] for r in rows] == ["UP", "DN", "NONE"] and rows[-1]["score"] is None
+
+
+def test_stooq_parsing_and_fallback(monkeypatch):
+    from veyro import datasources
+    monkeypatch.setattr(datasources, "_get", lambda url, timeout=10: "Symbol,Date,Time,Open,High,Low,Close,Prev\nAAPL.US,2026-09-25,22:00:00,1,2,0.5,210.5,208\n")
+    monkeypatch.setattr(datasources, "current", lambda: "stooq")
+    q = datasources.quote("AAPL")
+    assert q["price"] == 210.5 and q["prev_close"] == 208 and q["source"] == "Stooq"
+    assert datasources.quote("2222.SR") is None     # not covered -> caller falls back to Yahoo
+    assert datasources.stooq_symbol("GC=F") == "xauusd"

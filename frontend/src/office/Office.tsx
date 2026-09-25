@@ -8,6 +8,7 @@ import { usePrefs } from "../prefs";
 import { EndedBox, IdleBox, SpeechBox, VerdictBox, WaitBox } from "./Dialog";
 import { BudgetPlan, money } from "./BudgetPlan";
 import { BeginnerGuide } from "./BeginnerGuide";
+import { AddToPaper } from "../extras/Paper";
 import { RoomScene, Stage } from "./Room";
 import { useSession, type Line } from "./useSession";
 import { useLineText } from "./lineText";
@@ -21,7 +22,8 @@ type Mode = "single" | "watchlist" | "scan" | "beginner";
 type BPick = { symbol: string; name_en: string; name_ar: string; sector: string; style: string; price: number; currency: string; price_in_budget: number };
 type ScanView = { id: string; tickers: string[]; source: Candidate[] | null; sessions: string[]; results: Record<number, string | null>;
   ranking: { ticker: string; rating: string | null; session_id: string; status: string }[] | null; done: boolean; stopped?: boolean;
-  budget?: Budget | null; beginner?: boolean };
+  budget?: Budget | null; beginner?: boolean; prescreen?: Prescreen[] | null; reused?: Record<number, boolean> };
+type Prescreen = { ticker: string; score: number | null; trend?: number; ret_3m?: number; vol?: number };
 export type Budget = { amount: number; currency: "USD" | "SAR" };
 
 const FORM_KEY = "veyro.office.form.v1";
@@ -46,6 +48,11 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
   const [screener, setScreener] = useState(form0.screener);
   const [count, setCount] = useState(form0.count);
   const [chosen, setChosen] = useState<Set<string>>(new Set());   // scan candidates ticked for analysis
+  // Economy: a free price pre-screen, then the full (paid) team only on the best few.
+  const [economy, setEconomy] = useState(false);
+  const [econTop, setEconTop] = useState(3);
+  // Reuse: this stock was already analysed today with the same models.
+  const [reuseOffer, setReuseOffer] = useState<{ id: string; ticker: string; rating: string | null; at: string } | null>(null);
   useEffect(() => {
     try { localStorage.setItem(FORM_KEY, JSON.stringify({ mode, ticker, picked, screener, count })); } catch { /* private mode */ }
   }, [mode, ticker, picked, screener, count]);
@@ -153,12 +160,18 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
 
   function batchSize() {
     if (mode === "single") return 1;
-    if (mode === "watchlist") return picked.length || 1;
     if (mode === "beginner") return bPicks ? bChosen.size || 1 : bCount;
-    return preview && chosen.size ? chosen.size : count;
+    const n = mode === "watchlist" ? picked.length || 1 : preview && chosen.size ? chosen.size : count;
+    return economy && n > econTop ? econTop : n;
   }
 
-  async function start() {
+  async function openPrevious(id: string, tk: string) {
+    setReuseOffer(null); scanClose.current?.(); setScan(null);
+    try { await api.post(`/api/sessions/${id}/replay`); setSessionBudget(budget); setStarting(tk); startJingle(); setSessionId(id); }
+    catch { setErr(t.error); }
+  }
+
+  async function start(opts?: { fresh?: boolean }) {
     setErr(null); unlockAudio(); click();
     try {
       if (mode === "beginner" && !bPicks) { await suggestBeginner(); return; }
@@ -166,6 +179,11 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
       if (mode === "single") {
         const tk = ticker.trim().toUpperCase();
         if (!TICKER.test(tk)) { setErr(lang === "ar" ? "اكتب رمز السهم أو اختر الشركة من قائمة البحث." : "Type a symbol, or pick the company from the search list."); return; }
+        if (!demo && !opts?.fresh) {
+          const q = tradeDate ? `&trade_date=${tradeDate}` : "";
+          const r0 = await api.get<{ session: { id: string; rating: string | null; created_at: string } | null }>(`/api/reusable?ticker=${encodeURIComponent(tk)}${q}`).catch(() => ({ session: null }));
+          if (r0.session) { setReuseOffer({ id: r0.session.id, ticker: tk, rating: r0.session.rating, at: r0.session.created_at }); return; }
+        }
         const r = await api.post<{ id: string }>("/api/sessions", { ticker: tk, lang, demo, trade_date: tradeDate || null,
           budget: budget?.amount ?? null, budget_currency: budget?.currency ?? "USD" });
         setSessionBudget(budget); setStarting(tk); startJingle(); setSessionId(r.id);
@@ -176,25 +194,27 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
         if (tickers && tickers.length === 0) { setErr(lang === "ar" ? "اختر سهم واحد على الأقل." : "Pick at least one stock."); return; }
         const n = tickers ? tickers.length : count;
         const e = settings?.estimate;
-        if (!demo && n > 5 && e?.known && e.high != null
+        const paid = economy && mode !== "beginner" && n > econTop ? econTop : n;
+        if (!demo && paid > 5 && e?.known && e.high != null
           && !window.confirm(lang === "ar"
-            ? `بتحلل ${n} أسهم، كل سهم جلسة كاملة. التكلفة التقديرية ${fmtUsd((e.low ?? 0) * n, lang)} – ${fmtUsd(e.high * n, lang)}. نكمل؟`
-            : `You're analysing ${n} stocks, each a full session. Estimated cost ${fmtUsd((e.low ?? 0) * n, lang)} – ${fmtUsd(e.high * n, lang)}. Continue?`)) return;
+            ? `بتحلل ${paid} أسهم، كل سهم جلسة كاملة. التكلفة التقديرية ${fmtUsd((e.low ?? 0) * paid, lang)} – ${fmtUsd(e.high * paid, lang)}. نكمل؟`
+            : `You're analysing ${paid} stocks, each a full session. Estimated cost ${fmtUsd((e.low ?? 0) * paid, lang)} – ${fmtUsd(e.high * paid, lang)}. Continue?`)) return;
         const body = { ...(tickers ? { kind: "watchlist", tickers } : { kind: "screener", screener, count }), lang, demo,
-          budget: budget?.amount ?? null, budget_currency: budget?.currency ?? "USD" };
+          budget: budget?.amount ?? null, budget_currency: budget?.currency ?? "USD",
+          economy_top: economy && mode !== "beginner" && n > econTop ? econTop : null };
         const r = mode === "beginner"
           ? await api.post<{ id: string; tickers: string[]; source: Candidate[] | null }>("/api/beginner/start",
               { amount: budget!.amount, currency: budget!.currency, market: bMarket, risk: bRisk, count: tickers!.length, tickers, lang, demo })
-          : await api.post<{ id: string; tickers: string[]; source: Candidate[] | null }>("/api/scans", body);
+          : await api.post<{ id: string; tickers: string[]; source: Candidate[] | null; prescreen?: Prescreen[] | null }>("/api/scans", body);
         const view: ScanView = { id: r.id, tickers: r.tickers, source: r.source, sessions: [], results: {}, ranking: null, done: false, budget,
-          beginner: mode === "beginner" };
+          beginner: mode === "beginner", prescreen: (r as { prescreen?: Prescreen[] | null }).prescreen ?? null, reused: {} };
         setScan(view);
         scanClose.current = openStream(`/ws/scans/${r.id}`, (ev) => {
           setScan((s) => {
             if (!s) return s;
             if (ev.type === "scan_session") {
               const sessions = [...s.sessions]; sessions[ev.index] = ev.session_id;
-              return { ...s, sessions };
+              return { ...s, sessions, reused: { ...(s.reused ?? {}), [ev.index]: !!(ev as { reused?: boolean }).reused } };
             }
             if (ev.type === "scan_result") return { ...s, results: { ...s.results, [ev.index]: ev.rating } };
             if (ev.type === "scan_ranked") return { ...s, ranking: ev.ranking };
@@ -293,7 +313,10 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
   const speakTone = state.current && state.current.kind !== "error" ? toneOf(state.current.texts?.[lang] ?? state.current.text) : null;
   const verdictTone = state.verdictShown && state.verdict ? (RATING[state.verdict.rating]?.tone ?? null) : null;
   const verdictExtra = sessionId && state.verdict && state.ticker && renderVerdictExtra
-    ? renderVerdictExtra(sessionId, state.ticker, state.verdict.rating, state.mode === "demo") : null;
+    ? <>{renderVerdictExtra(sessionId, state.ticker, state.verdict.rating, state.mode === "demo")}
+        {state.mode === "real" && (state.verdict.rating === "Buy" || state.verdict.rating === "Overweight") && !sessionBudget && (
+          <AddToPaper items={[{ ticker: state.ticker, shares: 1, session_id: sessionId, rating: state.verdict.rating }]}
+            label={lang === "ar" ? "📒 سهم للمحفظة الافتراضية" : "📒 1 share to the virtual portfolio"} />)}</> : null;
   const SESSION: CharKey[] = [...CHAR_ORDER.slice(0, 7), "Albie", "Leo"];   // speaking order in a session
   const doneCount = SESSION.filter((c) => state.agents[c] === "done").length;
   const attending = SESSION.filter((c) => state.agents[c] !== "break").length;
@@ -381,12 +404,20 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
             <option value="USD">USD $</option><option value="SAR">{lang === "ar" ? "ريال" : "SAR"}</option>
           </select>
         </label>
+        {(mode === "watchlist" || mode === "scan") && (
+          <label className="check" title={lang === "ar" ? "فحص مجاني من بيانات الأسعار (الاتجاه، العائد، التذبذب) ثم التحليل الكامل المدفوع لأفضل الأسهم فقط" : "A free price pre-screen (trend, return, volatility), then the paid full analysis only on the best few"}>
+            <input type="checkbox" checked={economy} onChange={(e) => setEconomy(e.target.checked)} disabled={running} />
+            {lang === "ar" ? "💰 اقتصادي: حلّل أفضل" : "💰 Economy: analyse the best"}
+            <select className="field" style={{ height: 32, padding: "0 6px", marginInlineStart: 6 }} value={econTop} disabled={running || !economy}
+              onChange={(e) => setEconTop(Number(e.target.value))}>{[1, 2, 3, 5, 8, 10].map((k) => <option key={k} value={k}>{k}</option>)}</select>
+          </label>
+        )}
         <label className="check"><input type="checkbox" checked={demo} onChange={(e) => setDemo(e.target.checked)} disabled={running} />{t.demoMode}</label>
         {prefs.showCost && estimate && <span className="estimate">{t.estimate}: <b className="ltr">{estimate}</b></span>}
         <span style={{ flex: 1 }} />
         {running
           ? <button className="ghost btn" onClick={stop} disabled={stopReq} aria-busy={stopReq}>{stopReq ? (lang === "ar" ? "نوقف…" : "Stopping…") : t.stop}</button>
-          : <button className="primary btn" onClick={start} disabled={(mode === "watchlist" && picked.length === 0) || (mode === "beginner" && !!bPicks && bChosen.size === 0)}>
+          : <button className="primary btn" onClick={() => void start()} disabled={(mode === "watchlist" && picked.length === 0) || (mode === "beginner" && !!bPicks && bChosen.size === 0)}>
               {mode === "single" ? (sessionId ? t.again : t.start) : mode === "watchlist" ? `${t.startList} (${picked.length})`
                 : mode === "beginner" ? (bPicks ? (lang === "ar" ? `حلّلها لي (${bChosen.size})` : `Analyse them (${bChosen.size})`) : (lang === "ar" ? "اقترح لي" : "Suggest for me"))
                 : preview && chosen.size ? `${t.startScan} (${chosen.size})` : t.startScan}</button>}
@@ -441,6 +472,16 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
         </div>
       )}
       {err && <div className="warnstrip" role="alert">{err}</div>}
+      {reuseOffer && (
+        <div className="card cream row" role="alertdialog" aria-label={lang === "ar" ? "تحليل سابق" : "Earlier analysis"} style={{ padding: 14, gap: 10 }}>
+          <span style={{ flex: 1, minWidth: 220, lineHeight: 1.8 }}>{lang === "ar"
+            ? <>حللنا <b className="pixel ltr">{reuseOffer.ticker}</b> اليوم بنفس النماذج{reuseOffer.rating ? <> وكان القرار <b>{RATING[reuseOffer.rating]?.ar ?? reuseOffer.rating}</b></> : null}. تبي تشوف النتيجة بدون تكلفة، أو تحلله من جديد؟</>
+            : <>We already analysed <b className="pixel ltr">{reuseOffer.ticker}</b> today with the same models{reuseOffer.rating ? <> (call: <b>{RATING[reuseOffer.rating]?.en ?? reuseOffer.rating}</b>)</> : null}. See it again for free, or run a fresh analysis?</>}</span>
+          <button className="primary green btn" onClick={() => openPrevious(reuseOffer.id, reuseOffer.ticker)}>{lang === "ar" ? "اعرض النتيجة (مجاناً)" : "Show it (free)"}</button>
+          <button className="ghost btn" onClick={() => { setReuseOffer(null); void start({ fresh: true }); }}>{lang === "ar" ? "حلّل من جديد" : "Run again"}</button>
+          <button className="linkish" onClick={() => setReuseOffer(null)}>{lang === "ar" ? "إلغاء" : "Cancel"}</button>
+        </div>
+      )}
       {!running && <FavoritesStrip onPick={(tk) => { if (mode === "watchlist") addTickers([tk]); else { setMode("single"); setTicker(tk); } click(); }} />}
       {mode === "scan" && preview && !running && (
         <div className="card cream" style={{ padding: 14 }}>
@@ -482,15 +523,33 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
                 {scan.tickers.map((tk, i) => {
                   const r = scan.results[i];
                   const on = scan.sessions[i] === sessionId;
+                  const reused = scan.reused?.[i];
                   return (
                     <li key={tk} style={{ outline: on ? "3px solid var(--orange)" : "none" }}>
                       <b className="pixel ltr" style={{ minWidth: 60 }}>{tk}</b>
                       {r ? <span className={`vchip ${RATING[r]?.tone ?? "none"}`}>{lang === "ar" ? RATING[r]?.ar : RATING[r]?.en}</span>
                         : <span className="muted">{on ? t.nowAnalyzing : "…"}</span>}
+                      {reused && <span className="muted" style={{ fontSize: 12 }}>{lang === "ar" ? "♻ من تحليل اليوم" : "♻ from today"}</span>}
                     </li>
                   );
                 })}
               </ol>
+            </div>
+          )}
+          {scan?.prescreen && (
+            <div className="card" style={{ padding: 14 }}>
+              <b>{lang === "ar" ? "💰 الفحص المجاني (قبل التحليل الكامل)" : "💰 Free pre-screen (before the full analysis)"}</b>
+              <ol className="board-rank" style={{ margin: "8px 0 0", padding: 0, maxHeight: 200, overflowY: "auto" }}>
+                {scan.prescreen.map((p) => (
+                  <li key={p.ticker} style={{ opacity: scan.tickers.includes(p.ticker) ? 1 : 0.5 }}>
+                    <b className="pixel ltr" style={{ minWidth: 60 }}>{p.ticker}</b>
+                    <span className="ltr muted" style={{ fontSize: 12 }}>{p.score == null ? (lang === "ar" ? "بيانات غير كافية" : "not enough data")
+                      : `${lang === "ar" ? "3 شهور" : "3m"} ${fmtPct(p.ret_3m ?? 0, lang)} · ${lang === "ar" ? "اتجاه" : "trend"} ${fmtPct(p.trend ?? 0, lang)}`}</span>
+                    <span className="muted" style={{ fontSize: 12 }}>{scan.tickers.includes(p.ticker) ? (lang === "ar" ? "✓ للتحليل الكامل" : "✓ full analysis") : ""}</span>
+                  </li>
+                ))}
+              </ol>
+              <span className="muted" style={{ fontSize: 12 }}>{lang === "ar" ? "ترتيب فني من الأسعار فقط لتوفير التكلفة، مو توصية." : "A price-only ranking to save cost, not a recommendation."}</span>
             </div>
           )}
           <div className="minutes" style={{ maxHeight: scan ? 480 : 740 }}>

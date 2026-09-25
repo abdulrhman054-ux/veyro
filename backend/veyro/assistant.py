@@ -229,6 +229,8 @@ class Scheduler:
                 if time.time() - last_alert >= 300:
                     last_alert = time.time()
                     check_alerts()
+                    from .extras import check_all_prices
+                    check_all_prices()
             except Exception as e:  # noqa: BLE001
                 log.info("assistant tick failed: %s", type(e).__name__)
 

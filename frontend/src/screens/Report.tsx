@@ -126,6 +126,17 @@ function ReportBody({ s, missing }: { s: SessionFull | null; missing: boolean })
           <span className="row" style={{ gap: 6 }}>
             <button className="ghost btn" onClick={() => setOpenAll((o) => ({ open: true, n: o.n + 1 }))}>{ar ? "افتح الكل" : "Expand all"}</button>
             <button className="ghost btn" onClick={() => setOpenAll((o) => ({ open: false, n: o.n + 1 }))}>{ar ? "طوّ الكل" : "Collapse all"}</button>
+            <button className="primary btn" onClick={() => {
+              // Everything opened, then the system print dialog: choose "Save as PDF" (Arabic prints right-to-left as shown).
+              setOpenAll((o) => ({ open: true, n: o.n + 1 }));
+              // Arabic details are translated when opened: wait for them (up to a minute) so the PDF is complete.
+              const t0 = Date.now();
+              const waitThenPrint = () => {
+                const pending = [...document.querySelectorAll(".detail")].some((d) => d.textContent?.includes(t.translating));
+                if (pending && Date.now() - t0 < 60000) window.setTimeout(waitThenPrint, 500); else window.print();
+              };
+              window.setTimeout(waitThenPrint, 800);
+            }}>{ar ? "🖨 حفظ PDF / طباعة" : "🖨 Save PDF / print"}</button>
           </span>
         </div>
         {phases.map((p, i) => (

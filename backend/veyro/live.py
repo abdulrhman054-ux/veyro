@@ -160,13 +160,25 @@ class LiveHub:
         elif msg.get("change") is not None and fields["price"]:
             fields["prev_close"] = fields["price"] - float(msg["change"])
         out = [self._merge(sym, fields)]
+        try:
+            from .extras import check_price
+            check_price(sym, fields["price"])
+        except Exception:  # noqa: BLE001
+            pass
         if sym in ("GC=F", FX):
             out += self._derived()
         self._publish(out)
 
     # ------------------------------------------------------------ upstream: snapshot poll
     def _snapshot(self, syms: list[str]) -> None:
+        from . import datasources
+
         def one(sym: str) -> dict | None:
+            if datasources.current() != "yahoo":
+                q = datasources.quote(sym)
+                if q:
+                    return self._merge(sym, {"price": q["price"], "prev_close": q.get("prev_close"), "currency": q.get("currency"),
+                                             "time": q["as_of"], "live": False, "ts": time.time(), "source": q["source"]})
             try:
                 fi = yf.Ticker(sym).fast_info
                 p, pc = fi["lastPrice"], fi["previousClose"]

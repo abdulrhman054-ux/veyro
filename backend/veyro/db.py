@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS scans (
   mode TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS paper (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticker TEXT NOT NULL, shares REAL NOT NULL, entry_price REAL NOT NULL, currency TEXT,
+  bench TEXT, bench_entry REAL, opened_at TEXT NOT NULL, session_id TEXT, rating TEXT,
+  closed_at TEXT, exit_price REAL
+);
+CREATE TABLE IF NOT EXISTS price_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL, op TEXT NOT NULL,       -- 'above' | 'below'
+  value REAL NOT NULL, created_at TEXT NOT NULL, triggered_at TEXT, triggered_price REAL
+);
 """
 
 
@@ -151,6 +162,11 @@ def get_scan(scan_id: str) -> dict | None:
     s["tickers"] = json.loads(s.pop("tickers_json"))
     s["source"] = json.loads(s.pop("source_json") or "null")
     s["sessions"] = list_sessions(scan_id=scan_id)
+    # analyses reused from earlier today belong to this scan's results too
+    extra = get_setting(f"scan_extra:{scan_id}") or []
+    if extra:
+        have = {x["id"] for x in s["sessions"]}
+        s["sessions"] += [r for r in list_sessions(500) if r["id"] in extra and r["id"] not in have]
     return s
 
 

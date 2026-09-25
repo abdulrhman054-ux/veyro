@@ -76,6 +76,7 @@ class SettingsIn(BaseModel):
     risk_rounds: int | None = None
     reasoning_depth: str | None = None
     anthropic_workspace_id: str | None = None
+    data_source: str | None = None
     custom_model: bool = False   # the user typed a model ID that isn't in the framework's list
 
 
@@ -93,6 +94,7 @@ def settings_payload() -> dict:
         "keys": keys,
         "pricing": {m: list(v) for m, v in PRICING.items()},
         "limits": {"batch": MAX_BATCH, "screen": MAX_SCREEN},
+        "data_source": __import__("veyro.datasources", fromlist=["x"]).current(),
         "estimate": runner.estimate(provider, quick, deep),
         "team": runner.team_settings(),
         "reasoning_depth": db.get_setting("reasoning_depth", "default"),
@@ -135,6 +137,11 @@ def put_settings(s: SettingsIn):
         if ws and not re.fullmatch(r"wrkspc_[A-Za-z0-9]{8,64}", ws):
             raise HTTPException(400, "bad_workspace")
         db.set_setting("anthropic_workspace_id", ws or None)
+    if s.data_source is not None:
+        from .datasources import SOURCES
+        if s.data_source not in SOURCES:
+            raise HTTPException(400, "bad_source")
+        db.set_setting("data_source", s.data_source)
     if s.reasoning_depth is not None:
         if s.reasoning_depth not in ("default", "low", "medium", "high"):
             raise HTTPException(400, "bad_depth")
@@ -465,6 +472,8 @@ def verdict_text(sid: str, body: VerdictTextIn):
 class ScanIn(BaseModel):
     kind: str  # 'watchlist' | 'screener'
     tickers: list[str] = []
+    reuse: bool = True              # reopen today's finished analysis of a stock instead of paying again
+    economy_top: int | None = None  # economy mode: free price pre-screen, full analysis only on the best N
     screener: str | None = None
     count: int = 3
     lang: str = "ar"
@@ -492,9 +501,14 @@ async def create_scan(s: ScanIn):
         tickers = [c["symbol"] for c in source]
     else:
         raise HTTPException(400, "bad_kind")
+    prescreen = None
+    if s.economy_top and 0 < s.economy_top < len(tickers):
+        from . import extras
+        prescreen = extras.prescreen(tickers)
+        tickers = [r["ticker"] for r in prescreen if r["score"] is not None][:s.economy_top] or tickers[:s.economy_top]
     scan_id = runner.start_scan(asyncio.get_running_loop(), s.kind, tickers, s.screener, source, s.lang, s.demo,
-                                budget=_budget(s.budget, s.budget_currency))
-    return {"id": scan_id, "tickers": tickers, "source": source,
+                                budget=_budget(s.budget, s.budget_currency), reuse=s.reuse and not s.demo)
+    return {"id": scan_id, "tickers": tickers, "source": source, "prescreen": prescreen,
             "estimate": runner.estimate(*runner.settings_models(), sessions=len(tickers)) if not s.demo else None}
 
 
@@ -928,6 +942,109 @@ def ask_history(sid: str):
 @app.get("/api/learning")
 def learning_card():
     return assistant.learning(enrich)
+
+
+# ---------------------------------------------------------------- reuse, virtual portfolio, price alerts
+@app.get("/api/reusable")
+def sessions_reusable(ticker: str, trade_date: str | None = None):
+    from . import extras
+    return {"session": extras.reusable(_ticker(ticker), _trade_date(trade_date))}
+
+
+@app.post("/api/sessions/{sid}/replay")
+async def session_replay(sid: str):
+    """Show a finished analysis again in the Office (rebuilt from the database, no model calls)."""
+    from . import extras
+    s = db.get_session(sid)
+    if not s or s["status"] != "done":
+        raise HTTPException(404, "not_found")
+    if sid not in runner.BUSES or not runner.BUSES[sid].closed:
+        runner.BUSES[sid] = runner.Bus(asyncio.get_running_loop())
+        extras.replay(sid)
+    return {"id": sid}
+
+
+class PaperIn(BaseModel):
+    ticker: str
+    shares: float = Field(gt=0, le=1e7)
+    session_id: str | None = None
+    rating: str | None = None
+
+
+@app.get("/api/paper")
+def paper():
+    from . import extras
+    return extras.paper_view()
+
+
+@app.post("/api/paper")
+def paper_add(p: PaperIn):
+    from . import extras
+    try:
+        return extras.paper_add(_ticker(p.ticker), p.shares, p.session_id, p.rating)
+    except ValueError:
+        return JSONResponse({"ok": False, "code": "no_price"})
+
+
+class PaperPlanIn(BaseModel):
+    items: list[PaperIn]
+
+
+@app.post("/api/paper/plan")
+def paper_plan(p: PaperPlanIn):
+    from . import extras
+    out, added, failed = extras.paper_view(), [], []
+    for it in p.items[:60]:
+        try:
+            out = extras.paper_add(_ticker(it.ticker), it.shares, it.session_id, it.rating)
+            added.append(it.ticker)
+        except ValueError:
+            failed.append(it.ticker)      # no price right now: say so instead of pretending
+    if not added:
+        return JSONResponse({"ok": False, "code": "no_price", "failed": failed})
+    return {**out, "added": added, "failed": failed}
+
+
+@app.post("/api/paper/{pid}/close")
+def paper_close(pid: int):
+    from . import extras
+    return extras.paper_close(pid)
+
+
+@app.delete("/api/paper/{pid}")
+def paper_delete(pid: int):
+    from . import extras
+    return extras.paper_remove(pid)
+
+
+class PriceAlertIn(BaseModel):
+    symbol: str
+    op: str
+    value: float
+
+
+@app.get("/api/price_alerts")
+def price_alerts_list():
+    from . import extras
+    return {"alerts": extras.price_alerts()}
+
+
+@app.post("/api/price_alerts")
+def price_alerts_add(a: PriceAlertIn):
+    from . import extras, live
+    sym = a.symbol.strip().upper()
+    if not (TICKER_RE.match(sym) or sym in live.base_symbols()):
+        raise HTTPException(400, "invalid_ticker")
+    try:
+        return {"alerts": extras.add_price_alert(sym, a.op, a.value)}
+    except ValueError:
+        raise HTTPException(400, "bad_alert") from None
+
+
+@app.delete("/api/price_alerts/{aid}")
+def price_alerts_delete(aid: int):
+    from . import extras
+    return {"alerts": extras.delete_price_alert(aid)}
 
 
 # ---------------------------------------------------------------- beginner mode

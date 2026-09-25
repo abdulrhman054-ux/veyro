@@ -487,6 +487,7 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                 "checkpoint_enabled": True,  # a stopped or crashed run resumes from its last finished step
                 **reasoning_config(provider),
                 "benchmark_map": benchmark_map(),
+                "data_vendors": __import__("veyro.datasources", fromlist=["x"]).framework_vendors(DEFAULT_CONFIG["data_vendors"]),
                 "results_dir": str(TA_HOME / "logs"), "data_cache_dir": str(TA_HOME / "cache"),
                 "memory_log_path": str(TA_HOME / "memory" / "trading_memory.md")})
     tracker = UsageTracker()
@@ -889,7 +890,7 @@ SCAN_CANCEL: dict[str, threading.Event] = {}
 
 
 def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], screener: str | None,
-               source: list[dict] | None, lang: str, demo: bool, budget: dict | None = None) -> str:
+               source: list[dict] | None, lang: str, demo: bool, budget: dict | None = None, reuse: bool = False) -> str:
     """Analyse several tickers one after another, then rank them. Each is a full session."""
     scan_id = uuid.uuid4().hex[:12]
     db.create_scan(scan_id, kind, screener, tickers, source, lang, "demo" if demo else "real")
@@ -902,8 +903,19 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
         for i, t in enumerate(tickers):
             if stop.is_set():
                 break
-            sid = start_session(loop, t, lang, demo, scan_id=scan_id, budget=budget)
-            bus.publish({"type": "scan_session", "index": i, "ticker": t, "session_id": sid})
+            from . import extras
+            old = extras.reusable(t) if reuse else None
+            if old:
+                # Already analysed today with these models: show that result again instead of paying twice.
+                sid = old["id"]
+                if sid not in BUSES or not BUSES[sid].closed:
+                    BUSES[sid] = Bus(loop)
+                    extras.replay(sid)
+                bus.publish({"type": "scan_session", "index": i, "ticker": t, "session_id": sid, "reused": True})
+                db.set_setting(f"scan_extra:{scan_id}", (db.get_setting(f"scan_extra:{scan_id}") or []) + [sid])
+            else:
+                sid = start_session(loop, t, lang, demo, scan_id=scan_id, budget=budget)
+                bus.publish({"type": "scan_session", "index": i, "ticker": t, "session_id": sid})
             while not BUSES[sid].closed:
                 if stop.is_set():
                     cancel_session(sid)
@@ -913,7 +925,8 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
                          "status": s["status"], "rating": s["rating"]})
             if s["status"] == "error" and s.get("error") in ("no_key",):
                 break  # nothing else can succeed without a key
-        ranked = rank(db.list_sessions(scan_id=scan_id))
+        shown = [e["session_id"] for e in bus.events if e["type"] == "scan_session"]
+        ranked = rank([x for x in (db.get_session(i) for i in shown) if x])
         db.update_scan(scan_id, status="cancelled" if stop.is_set() else "done")
         bus.publish({"type": "scan_ranked", "ranking": [{"ticker": s["ticker"], "rating": s["rating"],
                                                           "session_id": s["id"], "status": s["status"]} for s in ranked]})
