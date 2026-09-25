@@ -63,19 +63,20 @@ export function Stage({ children }: { children: ReactNode }) {
   );
 }
 
-function nyTime(d: Date) {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hour12: false }).formatToParts(d);
+function zoneTime(d: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "numeric", hour12: false }).formatToParts(d);
   const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
   return { h: get("hour") % 24, m: get("minute") };
 }
 
-/** Wall clock shows New York market time; the ring is green while the market is open, red when closed. */
-function Clock({ marketOpen, lang }: { marketOpen: boolean | null; lang: Lang }) {
+/** Wall clock shows the market's own time (Riyadh for a Tadawul stock, else New York); the ring is green while
+ *  that market is open, red when closed. */
+function Clock({ marketOpen, lang, saudi = false }: { marketOpen: boolean | null; lang: Lang; saudi?: boolean }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 20_000); return () => clearInterval(t); }, []);
-  const { h, m } = nyTime(now);
+  const { h, m } = zoneTime(now, saudi ? "Asia/Riyadh" : "America/New_York");
   const ring = marketOpen === true ? "#3CB371" : marketOpen === false ? "#D9573F" : "var(--trim)";
-  const label = marketOpen === null ? "NY" : lang === "ar" ? (marketOpen ? "مفتوح" : "مقفل") : (marketOpen ? "OPEN" : "CLOSED");
+  const label = marketOpen === null ? (saudi ? "RUH" : "NY") : lang === "ar" ? (marketOpen ? "مفتوح" : "مقفل") : (marketOpen ? "OPEN" : "CLOSED");
   return (
     <>
       <div className={`clock${marketOpen ? " live" : ""}`} aria-hidden="true" style={{ borderColor: ring }}>
@@ -227,7 +228,7 @@ export function RoomScene({ ticker, market, marketLoaded, demo, agents, lang, ch
         <div className="c" style={{ top: 40, width: 28, animationDelay: "-3s" }} /><div className="c" style={{ top: 70, width: 22, animationDelay: "-10s" }} />
         {mood.mood === "slump" && <div className="rain" />}
       </div>
-      <Clock marketOpen={marketOpen} lang={lang} />
+      <Clock marketOpen={marketOpen} lang={lang} saudi={!!ticker && ticker.toUpperCase().endsWith(".SR")} />
       <Whiteboard ticker={ticker} market={market} loaded={marketLoaded} demo={demo} lang={lang} mood={mood} />
       <div className="plant" style={{ left: 12, top: 470 }}>{PLANT("#4E9E62", "#D9774E")}</div>
       <div className="plant" style={{ left: 928, top: 470, animationDelay: "-1.2s" }}>{PLANT("#6CC38E", "#E8A04A")}</div>

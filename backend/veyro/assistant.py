@@ -192,11 +192,10 @@ def morning_due(now_local: datetime | None = None) -> bool:
 
 
 def _any_market_trades_today(tickers: list[str], now: datetime) -> bool:
-    """Regular trading weekdays of each favourite's own market, in that market's time zone (holidays not included)."""
-    from .beginner import MARKETS
-    for t in tickers:
-        m = MARKETS["sa" if t.upper().endswith(".SR") else "us"]
-        if now.astimezone(ZoneInfo(m["tz"])).weekday() in m["days"]:
+    """A trading day (weekends and known holidays excluded) in any favourite's own market and time zone."""
+    from .calendars import MARKETS, is_session, market_of
+    for m in {market_of(t) for t in tickers}:
+        if is_session(m, now.astimezone(ZoneInfo(MARKETS[m]["tz"])).date()):
             return True
     return False
 
@@ -372,17 +371,9 @@ MIN_SAMPLE = 30      # below this a hit rate is shown as "too few to judge"
 
 
 def add_trading_days(start: str, n: int, ticker: str) -> str:
-    """The date n regular trading days after `start` in the stock's own market (Tadawul Sun-Thu, US Mon-Fri).
-    Holidays aren't in the calendar; the price used is the close on or before that date, so a holiday only
-    shifts it to the previous session."""
-    from .beginner import MARKETS
-    days = MARKETS["sa" if ticker.upper().endswith(".SR") else "us"]["days"]
-    d = date.fromisoformat(start[:10])
-    while n > 0:
-        d += timedelta(days=1)
-        if d.weekday() in days:
-            n -= 1
-    return d.isoformat()
+    """The date n trading sessions after `start` in the stock's own market (holiday-aware where known)."""
+    from .calendars import add_sessions, market_of
+    return add_sessions(start, n, market_of(ticker))
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float] | None:

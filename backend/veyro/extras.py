@@ -21,7 +21,7 @@ def reusable(ticker: str, trade_date: str | None = None) -> dict | None:
     provider, quick, deep = runner.settings_models()
     r = db.q1("SELECT id, created_at, rating, finished_at FROM sessions WHERE ticker=? AND trade_date=? AND mode='real' "
               "AND status='done' AND provider=? AND quick_model=? AND deep_model=? ORDER BY created_at DESC LIMIT 1",
-              (ticker, trade_date or runner.ny_today(), provider, quick, deep))
+              (ticker, trade_date or runner.today_for(ticker), provider, quick, deep))
     return r
 
 

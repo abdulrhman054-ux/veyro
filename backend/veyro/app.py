@@ -326,8 +326,14 @@ def remove_key(provider: str):
 # ---------------------------------------------------------------- market
 @app.get("/api/market/status")
 def market_status():
-    s = market.market_status()
-    return s or {"open": None, "status": "unavailable"}
+    """US status from Yahoo (it knows holidays) plus both markets from the trading calendars, so a Saudi user
+    isn't shown the US market as "the market"."""
+    from .calendars import is_open
+    s = market.market_status() or {"open": None, "status": "unavailable"}
+    mk = {m: is_open(m) for m in ("sa", "us")}
+    if s.get("open") is not None:
+        mk["us"]["open"] = s["open"]
+    return {**s, "markets": mk}
 
 
 @app.get("/api/market/history/{ticker}")
@@ -398,10 +404,11 @@ def _max_price(b: dict | None) -> float | None:
     return b["amount"] * rate if rate else None
 
 
-def _trade_date(d: str | None) -> str | None:
+def _trade_date(d: str | None, ticker: str | None = None) -> str | None:
     if not d:
         return None
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) or not ("2005-01-01" <= d <= runner.ny_today()):
+    latest = runner.today_for(ticker) if ticker else max(runner.today_for("X.SR"), runner.today_for("X"))
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) or not ("2005-01-01" <= d <= latest):
         raise HTTPException(400, "bad_date")
     return d
 
@@ -413,7 +420,7 @@ async def create_session(s: SessionIn):
     t = _ticker(s.ticker)
     if not s.demo and (r := _cap_reached()):
         return r
-    sid = runner.start_session(asyncio.get_running_loop(), t, s.lang, s.demo, trade_date=_trade_date(s.trade_date),
+    sid = runner.start_session(asyncio.get_running_loop(), t, s.lang, s.demo, trade_date=_trade_date(s.trade_date, t),
                                budget=_budget(s.budget, s.budget_currency))
     return {"id": sid}
 

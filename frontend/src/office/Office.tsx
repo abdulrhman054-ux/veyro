@@ -37,7 +37,8 @@ function loadForm(): Form {
   try { return { ...d, ...JSON.parse(localStorage.getItem(FORM_KEY) || "{}") }; } catch { return d; }
 }
 
-export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdictExtra, pendingStart, pendingScan }: { settings: Settings | null; onOpenReport: (id: string) => void; onBusy: (b: boolean) => void; marketOpen: boolean | null;
+export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, marketsOpen, renderVerdictExtra, pendingStart, pendingScan }: { settings: Settings | null; onOpenReport: (id: string) => void; onBusy: (b: boolean) => void; marketOpen: boolean | null;
+  marketsOpen?: Record<"sa" | "us", { open: boolean }> | null;
   renderVerdictExtra?: (sessionId: string, ticker: string, rating: string, demo: boolean) => React.ReactNode;
   pendingStart?: { ticker: string; trade_date: string; nonce: number } | null;
   pendingScan?: { id: string; nonce: number } | null }) {
@@ -374,7 +375,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
           <label className="row" style={{ gap: 6 }} title={lang === "ar" ? "اتركه فاضي لتحليل اليوم" : "Leave empty to analyse today"}>
             <span style={{ fontWeight: 700, fontSize: 14 }}>{lang === "ar" ? "بتاريخ سابق؟" : "Past date?"}</span>
             <input className="field ltr" type="date" style={{ height: 40, width: 150, fontSize: 14 }} value={tradeDate}
-              max={new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date())} onChange={(e) => setTradeDate(e.target.value)} disabled={running} />
+              max={new Intl.DateTimeFormat("en-CA", { timeZone: ticker.trim().toUpperCase().endsWith(".SR") ? "Asia/Riyadh" : "America/New_York" }).format(new Date())} onChange={(e) => setTradeDate(e.target.value)} disabled={running} />
           </label>
         </>)}
         {mode === "watchlist" && (
@@ -582,7 +583,8 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
       <div className="office">
         <Stage>
           <RoomScene ticker={state.ticker} market={state.market ?? (sessionId ? null : spy)} marketLoaded={state.marketLoaded}
-            demo={isDemo} agents={state.agents} lang={lang} starting={starting} mood={mood} marketOpen={marketOpen}
+            demo={isDemo} agents={state.agents} lang={lang} starting={starting} mood={mood}
+            marketOpen={(state.ticker ?? "").toUpperCase().endsWith(".SR") ? (marketsOpen?.sa.open ?? null) : usOpen}
             scene={state.ended && !state.verdict && !state.current ? "office" : scene} heat={heat} verdictTone={verdictTone === "none" ? null : verdictTone}
             speakTone={speakTone}>
             {state.current ? <SpeechBox key={state.current.id} line={state.current} lang={lang} onDone={next} />

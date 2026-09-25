@@ -65,8 +65,12 @@ def last_price(ticker: str) -> dict | None:
             if p is None or p != p or p <= 0:
                 return _free_backup_quote(ticker, src)
             pc = fi.get("previousClose")
+            from .calendars import quote_time
+            qt = quote_time(ticker) if not ticker.startswith("^") and "=" not in ticker and "-USD" not in ticker else \
+                {"as_of": datetime.now(timezone.utc).isoformat(timespec="seconds"), "is_close": False}
             return {"price": float(p), "currency": fi.get("currency") or "USD", "prev_close": float(pc) if pc and pc == pc else None,
-                    "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds"), "source": SOURCE}
+                    "as_of": qt["as_of"], "is_close": qt["is_close"],   # a closed market's price is that session's close
+                    "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "source": SOURCE}
         except Exception as e:  # noqa: BLE001
             log.info("price unavailable for %s: %s", ticker, type(e).__name__)
         return _free_backup_quote(ticker, src)

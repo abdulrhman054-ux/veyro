@@ -189,6 +189,12 @@ def error_event(code: str, lang: str, detail: str = "") -> dict:
 
 
 # ---------------------------------------------------------------- helpers
+def today_for(ticker: str | None) -> str:
+    """Today's date in the stock's own market (Riyadh for Tadawul, New York otherwise)."""
+    from .calendars import local_today, market_of
+    return local_today(market_of(ticker))
+
+
 def ny_today() -> str:
     return datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
 
@@ -520,8 +526,8 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
     activate_key(provider, key)
 
     # A past date is analysed point-in-time: the framework only lets agents see data up to that day.
-    trade_date = trade_date_in or ny_today()
-    past = trade_date < ny_today()
+    trade_date = trade_date_in or today_for(ticker)
+    past = trade_date < today_for(ticker)
     team = team_settings()
     symbol, asset_type = resolve_instrument(ticker)
     analysts = analysts_for(asset_type, team["analysts"])
@@ -866,7 +872,7 @@ DEMO_ORDER = [("Ollie", "Market Analyst"), ("Buzz", "Sentiment Analyst"), ("Pip"
 
 
 def _run_demo(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.Event) -> None:
-    trade_date = ny_today()
+    trade_date = today_for(ticker)
 
     def nap(sec: float):
         if cancel.wait(sec):   # Stop interrupts the pause at once
@@ -938,7 +944,7 @@ def start_session(loop: asyncio.AbstractEventLoop, ticker: str, lang: str, demo:
                   scan_id: str | None = None, wait: bool = False, trade_date: str | None = None, budget: dict | None = None) -> str:
     sid = uuid.uuid4().hex[:12]
     provider, quick, deep = settings_models()
-    db.create_session(sid, ticker, trade_date or ny_today(), "demo" if demo else "real",
+    db.create_session(sid, ticker, trade_date or today_for(ticker), "demo" if demo else "real",
                       None if demo else provider, None if demo else quick, None if demo else deep, lang, scan_id)
     BUSES[sid] = Bus(loop)
     CANCEL[sid] = threading.Event()

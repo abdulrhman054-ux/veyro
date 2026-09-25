@@ -111,7 +111,7 @@ MARKETS = {
     "us": {"name": {"ar": "السوق الأمريكي", "en": "US market"}, "currency": "USD", "tz": "America/New_York",
            "days": (0, 1, 2, 3, 4), "open": (9, 30), "close": (16, 0), "benchmark": "SPY",
            "hours": {"ar": "الاثنين إلى الجمعة، من العصر إلى الليل بتوقيت السعودية (9:30 إلى 4:00 بتوقيت نيويورك)",
-                     "en": "Monday to Friday, 9:30 to 16:00 New York time (afternoon to night in Saudi time)"},
+                     "en": "Monday to Friday, 9:30 to 16:00 New York time"},
            "tips": [
                ("Pip", "تحتاج وسيط يتيح الأسهم الأمريكية؛ كثير من الوسطاء السعوديين يوفرونها.",
                 "You need a broker that offers US stocks; many Saudi brokers do."),
@@ -156,15 +156,13 @@ def how_to_buy(market_id: str, lang: str) -> dict:
 
 
 def market_status(market_id: str) -> dict:
-    """Open/closed by regular hours in the market's own time zone (holidays not included)."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
+    """Open/closed now, in the market's own time zone, holiday-aware where the calendar knows the holidays."""
+    from .calendars import is_open
     out = {}
     for m in (["sa", "us"] if market_id == "both" else [market_id]):
         info = MARKETS[m]
-        now = datetime.now(ZoneInfo(info["tz"]))
-        open_ = now.weekday() in info["days"] and info["open"] <= (now.hour, now.minute) < info["close"]
-        out[m] = {"open": open_, "name": info["name"], "hours": info["hours"]}
+        st = is_open(m)
+        out[m] = {"open": st["open"], "holidays_known": st["holidays_known"], "name": info["name"], "hours": info["hours"]}
     return out
 
 

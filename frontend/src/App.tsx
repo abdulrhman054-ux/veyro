@@ -43,7 +43,7 @@ function Shell() {
   useEffect(() => { setSeen((v) => (v.has(screen) ? v : new Set(v).add(screen))); }, [screen]);
   const [reportId, setReportId] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [market, setMarket] = useState<{ open: boolean | null } | null>(null);
+  const [market, setMarket] = useState<{ open: boolean | null; markets?: Record<"sa" | "us", { open: boolean; holidays_known: boolean }> } | null>(null);
   const [busy, setBusy] = useState(false);
   const [glossary, setGlossary] = useState(false);
   const [pendingStart, setPendingStart] = useState<{ ticker: string; trade_date: string; nonce: number } | null>(null);
@@ -59,7 +59,7 @@ function Shell() {
     return () => window.removeEventListener("veyro:follow-scan", f);
   }, []);
   useEffect(() => {
-    const load = () => api.get<{ open: boolean | null }>("/api/market/status").then(setMarket).catch(() => setMarket({ open: null }));
+    const load = () => api.get<{ open: boolean | null; markets?: Record<"sa" | "us", { open: boolean; holidays_known: boolean }> }>("/api/market/status").then(setMarket).catch(() => setMarket({ open: null }));
     load(); const h = setInterval(load, 60_000); return () => clearInterval(h);
   }, []);
 
@@ -73,6 +73,7 @@ function Shell() {
     wasBusy.current = busy;
   }, [busy]);
 
+  const mk = market?.markets;
   const mkt = market?.open === true ? ["open", t.marketOpen] : market?.open === false ? ["closed", t.marketClosed] : ["", t.marketUnknown];
 
   return (
@@ -94,7 +95,11 @@ function Shell() {
           <ModeBadge />
           <AlertsBell onOpenMorning={openMorning} />
           <button className="pill btn" onClick={() => { click(); setGlossary(true); }} aria-label={prefs.lang === "ar" ? "قاموس المصطلحات" : "Glossary"} title={prefs.lang === "ar" ? "قاموس المصطلحات" : "Glossary"}>📖</button>
-          <span className={`chip mkt ${mkt[0]}`} role="status"><i />{mkt[1]}</span>
+          {mk ? (["sa", "us"] as const).map((m) => (
+            <span key={m} className={`chip mkt ${mk[m].open ? "open" : "closed"}`} role="status" data-market={m}
+              title={mk[m].holidays_known ? undefined : (prefs.lang === "ar" ? "بالساعات العادية؛ العطل غير معروفة" : "regular hours; holidays not known")}>
+              <i />{m === "sa" ? (prefs.lang === "ar" ? "تداول" : "Tadawul") : (prefs.lang === "ar" ? "أمريكا" : "US")} · {mk[m].open ? (prefs.lang === "ar" ? "مفتوح" : "open") : (prefs.lang === "ar" ? "مقفل" : "closed")}</span>
+          )) : <span className={`chip mkt ${mkt[0]}`} role="status"><i />{mkt[1]}</span>}
           <button className="pill btn" onClick={() => set({ lang: prefs.lang === "ar" ? "en" : "ar" })} aria-label={t.langAria} lang={prefs.lang === "ar" ? "en" : "ar"}>{t.langBtn}</button>
           <button className="pill btn" onClick={() => set({ theme: night ? "day" : "night" })} aria-label={t.themeAria}>{night ? SUN : MOON}</button>
           <button className="pill btn" onClick={() => { unlockAudio(); set({ sound: !prefs.sound }); }} aria-label={t.soundAria} aria-pressed={prefs.sound} style={{ opacity: prefs.sound ? 1 : 0.6 }}>
@@ -106,7 +111,7 @@ function Shell() {
       <main>
         {/* Office stays mounted so a running session keeps playing while you peek at other screens. */}
         <div hidden={screen !== "office"} className="stack">
-          <Office settings={settings} onOpenReport={openReport} onBusy={onBusy} marketOpen={market?.open ?? null} pendingStart={pendingStart} pendingScan={pendingScan}
+          <Office settings={settings} onOpenReport={openReport} onBusy={onBusy} marketOpen={market?.open ?? null} marketsOpen={market?.markets ?? null} pendingStart={pendingStart} pendingScan={pendingScan}
             renderVerdictExtra={(sid, tk, rating, demo) => <ProposeButton sessionId={sid} ticker={tk} rating={rating} demo={demo} />} />
         </div>
         {seen.has("report") && <div hidden={screen !== "report"}><Report sessionId={reportId} active={screen === "report"} /></div>}

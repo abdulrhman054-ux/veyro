@@ -294,7 +294,7 @@ def test_trust_scores_at_a_fixed_horizon_not_until_now(monkeypatch):
         return {"AAPL": 105.0, "SPY": 101.0}[t]
     monkeypatch.setattr(market, "close_on_or_before", close)
     t = assistant.trust([_call("AAPL", "Buy", "2026-09-01")], date(2026, 9, 25))
-    assert ("AAPL", "2026-09-08") in asked                        # 5 US trading days after Tue 1 Sep
+    assert ("AAPL", "2026-09-09") in asked                        # 5 US sessions after Tue 1 Sep (Labor Day 7 Sep skipped)
     assert t["horizons"]["5"]["n"] == 1 and t["horizons"]["20"]["waiting"] == 1
     assert t["overall"]["avg_edge"] == pytest.approx(0.04)
 
@@ -387,3 +387,29 @@ def test_trust_rating_endpoint(monkeypatch):
     r = _client("127.0.0.1").get("/api/trust/rating/Buy").json()
     assert r["n"] == 12 and r["enough"] is False and r["horizon"] == 5
     assert _client("127.0.0.1").get("/api/trust/rating/Sell").json()["n"] == 0
+
+
+
+def test_calendars_know_holidays_and_local_dates():
+    from datetime import date, datetime, timezone
+    from veyro import calendars
+    assert not calendars.is_session("us", date(2026, 9, 7))          # Labor Day
+    assert not calendars.is_session("sa", date(2026, 9, 23))         # Saudi National Day
+    assert calendars.is_session("sa", date(2026, 9, 27))             # a Sunday on Tadawul
+    assert not calendars.is_session("us", date(2026, 9, 27))
+    # 01:00 UTC on a Sunday: already Sunday in Riyadh, still Saturday in New York
+    t = datetime(2026, 9, 27, 1, 0, tzinfo=timezone.utc)
+    assert calendars.local_today("sa", t) == "2026-09-27" and calendars.local_today("us", t) == "2026-09-26"
+    assert calendars.is_open("sa", datetime(2026, 9, 27, 8, 0, tzinfo=timezone.utc))["open"]       # 11:00 Riyadh
+    assert not calendars.is_open("sa", datetime(2026, 9, 23, 8, 0, tzinfo=timezone.utc))["open"]   # holiday
+    assert not calendars.is_open("us", datetime(2026, 9, 7, 15, 0, tzinfo=timezone.utc))["open"]   # Labor Day
+
+
+def test_quote_time_says_close_when_the_market_is_shut():
+    from datetime import datetime, timezone
+    from veyro import calendars
+    sat = datetime(2026, 9, 26, 12, 0, tzinfo=timezone.utc)                  # Saturday
+    assert calendars.quote_time("AAPL", sat) == {"as_of": "2026-09-25", "is_close": True}
+    assert calendars.quote_time("2222.SR", sat) == {"as_of": "2026-09-24", "is_close": True}   # Tadawul's last day: Thursday
+    live = calendars.quote_time("AAPL", datetime(2026, 9, 25, 15, 0, tzinfo=timezone.utc))      # 11:00 New York, Friday
+    assert live["is_close"] is False
