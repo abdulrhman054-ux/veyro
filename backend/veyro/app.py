@@ -861,6 +861,10 @@ def start_backtest(b: BacktestIn):
     job = {"id": uuid.uuid4().hex[:10], "tickers": tickers, "dates": dates, "cells": cells, "status": "running",
            "done": 0, "summary": None, "failures": [], "estimate": runner.estimate(provider, quick, deep, sessions=cells)}
     BACKTESTS[job["id"]] = job
+    from . import budget
+    # The framework's backtest takes no usage callback, so its tokens can't be counted: its high estimate is
+    # recorded against this month's cap instead (over-counting is safer than a backtest that costs "$0").
+    budget.reserve_extra(job["estimate"].get("high") or 0, f"backtest {job['id']} ({cells} cells)")
 
     def work():
         from pathlib import Path

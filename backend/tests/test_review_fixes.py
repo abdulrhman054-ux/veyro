@@ -79,3 +79,75 @@ def test_loopback_host_still_works():
     c = _client("127.0.0.1")
     assert c.get("/api/health").status_code == 200
     assert c.get("/api/settings", headers={"host": "localhost:8765"}).status_code == 200
+
+
+# ---------------------------------------------------------------- monthly spend cap
+class _Gen:
+    def __init__(self, model, i, o):
+        from types import SimpleNamespace
+        self.message = SimpleNamespace(usage_metadata={"input_tokens": i, "output_tokens": o}, response_metadata={"model_name": model})
+
+
+def _spend(model, i, o):
+    from types import SimpleNamespace
+    return SimpleNamespace(generations=[[_Gen(model, i, o)]])
+
+
+def _fresh_month(monkeypatch):
+    from veyro import budget
+    with db.tx() as c:
+        c.execute("DELETE FROM sessions")
+    db.set_setting("monthly_cap_usd", "1")
+    monkeypatch.setattr(budget, "month_key", lambda: db.now()[:7])
+    return budget
+
+
+def test_cancelled_session_cost_counts_toward_cap(monkeypatch):
+    # A session stopped just before the verdict had spent real money but was recorded as $0.
+    import asyncio
+    from veyro import runner
+    budget = _fresh_month(monkeypatch)
+
+    def fake_real(sid, ticker, lang, em, cancel, trade_date, budget_):
+        tr = runner.UsageTracker()
+        runner.TRACKERS[sid] = tr
+        tr.on_llm_end(_spend("claude-opus-5-5", 100_000, 100_000))   # $0.40 + $2.00
+        raise runner._Cancelled()
+    monkeypatch.setattr(runner, "_run_real", fake_real)
+    runner.start_session(asyncio.new_event_loop(), "AAPL", "en", False, wait=True)
+    assert budget.spent()["spent"] >= 2.4 - 1e-6
+    assert budget.blocked()
+
+
+def test_partially_priced_session_counts_known_part(monkeypatch):
+    # One unpriced model made the whole session count as $0.
+    from veyro import runner
+    budget = _fresh_month(monkeypatch)
+    tr = runner.UsageTracker()
+    tr.on_llm_end(_spend("claude-opus-5-5", 100_000, 100_000))
+    tr.on_llm_end(_spend("some-unknown-model", 1000, 1000))
+    usage = tr.summary()
+    db.create_session("p1", "AAPL", "2026-09-25", "real", "anthropic", "q", "d", "en")
+    db.update_session("p1", status="done", usage_json=__import__("json").dumps(usage), cost_usd=usage["cost_usd"])
+    assert usage["cost_usd"] is None
+    assert budget.spent()["spent"] >= 2.4 - 1e-6
+
+
+def test_running_sessions_reserve_their_estimate(monkeypatch):
+    # The cap only looked at finished sessions, so several runs started together all passed the check.
+    from veyro import runner
+    budget = _fresh_month(monkeypatch)
+    db.set_setting("monthly_cap_usd", "4")
+    for i in range(3):
+        db.create_session(f"r{i}", "AAPL", "2026-09-25", "real", "anthropic", "claude-sonnet-5", "claude-opus-5-5", "en")
+    hi = runner.estimate("anthropic", "claude-sonnet-5", "claude-opus-5-5")["high"]
+    assert 3 * hi >= 4 and budget.spent()["spent"] == 0
+    assert budget.blocked()
+
+
+def test_backtest_reserves_its_estimate(monkeypatch):
+    from veyro import budget as B
+    budget = _fresh_month(monkeypatch)
+    db.set_setting("monthly_cap_usd", "100")
+    B.reserve_extra(12.5, "backtest")
+    assert budget.spent()["spent"] >= 12.5

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import logging
 import os
 import queue
@@ -132,6 +133,7 @@ class Bus:
 
 BUSES: dict[str, Bus] = {}
 CANCEL: dict[str, threading.Event] = {}
+TRACKERS: dict[str, "UsageTracker"] = {}   # live token counters, so a stopped or failed run still records its cost
 
 
 # ---------------------------------------------------------------- in-character errors
@@ -418,6 +420,12 @@ def run_session(sid: str, ticker: str, lang: str, demo: bool, trade_date: str | 
             if s and s.get("status") == "running":
                 db.update_session(sid, status="cancelled" if stopped else "error", error=None if stopped else "incomplete",
                                   finished_at=db.now())
+        tracker = TRACKERS.pop(sid, None)
+        if tracker is not None:   # stopped or failed after spending: the monthly cap must still see the cost
+            s = db.get_session(sid)
+            if s and s.get("status") != "done" and not s.get("usage_json"):
+                usage = tracker.summary()
+                db.update_session(sid, usage_json=json.dumps(usage), cost_usd=usage["cost_usd"])
 
 
 # ---------------------------------------------------------------- how the characters hand over to each other
@@ -508,6 +516,7 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                 "results_dir": str(TA_HOME / "logs"), "data_cache_dir": str(TA_HOME / "cache"),
                 "memory_log_path": str(TA_HOME / "memory" / "trading_memory.md")})
     tracker = UsageTracker()
+    TRACKERS[sid] = tracker
     ta = TradingAgentsGraph(selected_analysts=tuple(analysts), config=cfg, callbacks=[tracker])
     from .voice import Voice
     voice = Voice(provider, quick, callbacks=[tracker])

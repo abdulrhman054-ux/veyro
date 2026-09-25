@@ -349,7 +349,7 @@ function BudgetCap({ settings, onChange, lang }: { settings: Settings; onChange:
       {sp && <>
         <div className="capbar" aria-hidden="true"><i style={{ width: `${pct * 100}%`, background: pct >= 1 ? "var(--sell)" : pct > 0.8 ? "var(--orange)" : "var(--buy)" }} /></div>
         <span style={{ fontSize: 13 }}>{ar ? `صرفت هذا الشهر ${"$"}${sp.spent.toFixed(2)}${sp.cap ? ` من ${"$"}${sp.cap}` : ""} في ${sp.sessions} جلسة.` : `Spent this month: $${sp.spent.toFixed(2)}${sp.cap ? ` of $${sp.cap}` : ""} across ${sp.sessions} sessions.`}
-          {sp.unpriced_sessions > 0 && <span className="muted">{ar ? ` (${sp.unpriced_sessions} جلسة بمزوّد سعره غير معروف ما انحسبت)` : ` (${sp.unpriced_sessions} sessions on a provider with unknown prices aren't counted)`}</span>}</span>
+          {sp.unpriced_sessions > 0 && <span className="muted">{ar ? ` (${sp.unpriced_sessions} جلسة فيها نموذج سعره غير معروف: انحسب الجزء المعروف فقط، فالسقف ما يحميك كامل مع هالمزوّد)` : ` (${sp.unpriced_sessions} sessions used a model with an unknown price: only the priced part is counted, so the cap can't fully protect you with that provider)`}</span>}</span>
       </>}
       <span className="muted" style={{ fontSize: 12 }}>{ar ? "لما يوصل الصرف للسقف، ما تبدأ جلسات مدفوعة جديدة (الوضع التجريبي يبقى متاح). المسح يوقف عند السقف." : "Once spending reaches the cap no new paid session starts (demo still works); scans stop at the cap."}</span>
       {msg && <span style={{ fontSize: 13 }}>{msg}</span>}
