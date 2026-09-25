@@ -7,10 +7,16 @@ import type { Verdict } from "../api";
 import type { Line } from "./useSession";
 import { useLineText } from "./lineText";
 import { useVerdictText } from "./verdictText";
+import { canReadAloud, readAloud } from "./readAloud";
 
 /** Typewriter dialogue box. Click (or Enter/Space) finishes the line, click again advances. */
 export function SpeechBox({ line, lang, onDone }: { line: Line; lang: Lang; onDone: () => void }) {
-  const { motionOff } = usePrefs();
+  const { motionOff, prefs } = usePrefs();
+  const reading = prefs.readAloud && canReadAloud();
+  const [spoken, setSpoken] = useState(!reading);   // with read-aloud on, a line waits until it has been heard
+  useEffect(() => {
+    setSpoken(!reading);
+  }, [line.id, reading]);
   const text = useLineText(line.texts, line.turnId, lang, !line.demo && line.kind !== "error") ?? "";
   const [n, setN] = useState(motionOff ? text.length : 0);
   const done = text.length > 0 && n >= text.length;
@@ -22,9 +28,15 @@ export function SpeechBox({ line, lang, onDone }: { line: Line; lang: Lang; onDo
   useEffect(() => { if (line.kind === "error") errorBonk(); }, [line.id, line.kind]);
 
   useEffect(() => {
+    if (!reading || !text) return;
+    return readAloud(`${charName(line.character, lang)}: ${text}`, lang, () => setSpoken(true));
+  }, [reading, text, line.id, line.character, lang]);
+
+  useEffect(() => {
     if (!text) return;
     if (done) {
-      const hold = Math.min(15000, 2000 + text.length * 40);   // time to read it, longer lines stay longer
+      if (!spoken) return;   // still being read aloud
+      const hold = reading ? 900 : Math.min(15000, 2000 + text.length * 40);   // time to read it, longer lines stay longer
       const h = window.setTimeout(() => doneRef.current(), line.kind === "error" ? hold + 3000 : hold);
       return () => clearTimeout(h);
     }
@@ -36,7 +48,7 @@ export function SpeechBox({ line, lang, onDone }: { line: Line; lang: Lang; onDo
       });
     }, VOICES[line.character]?.msPerChar ?? 30);
     return () => clearTimeout(h);
-  }, [n, done, text, line.kind, line.character]);
+  }, [n, done, text, line.kind, line.character, spoken, reading]);
 
   const box = useRef<HTMLSpanElement>(null);
   useEffect(() => { const el = box.current; if (el) el.scrollTop = el.scrollHeight; }, [n]);   // long lines: follow the typing
@@ -47,6 +59,8 @@ export function SpeechBox({ line, lang, onDone }: { line: Line; lang: Lang; onDo
       <span className="tag" style={{ background: charColor(line.character) }}>{charName(line.character, lang)}</span>
       <span className="dtext scroll" ref={box} aria-hidden="true" style={{ display: "block" }}>{text ? text.slice(0, n) : "…"}{!done && <span className="caret" />}</span>
       {done && <span className="next" aria-hidden="true" />}
+      {/* Screen readers hear each full line once, as it starts. */}
+      <span className="sr-only" aria-live="polite">{text ? `${charName(line.character, lang)}: ${text}` : ""}</span>
     </button>
   );
 }
@@ -118,6 +132,12 @@ export function VerdictBox({ v, lang, onOpenReport, demo, sessionId, extra }: { 
   const r = RATING[v.rating] ?? RATING.REVIEW;
   const c = CONVICTION[v.conviction] ?? CONVICTION.unstated;
   useEffect(() => { verdictJingle(r.tone); }, [r.tone]);
+  const { prefs } = usePrefs();
+  const vtext = useVerdictText(sessionId, v, lang);
+  useEffect(() => {
+    if (!prefs.readAloud || !vtext) return;
+    return readAloud(`${lang === "ar" ? r.ar : r.en}. ${vtext.reason ?? ""}`, lang);
+  }, [prefs.readAloud, vtext, lang, r.ar, r.en]);
   const price = v.price?.price;
   const reason = useVerdictText(sessionId, v, lang)?.reason ?? null;
   return (

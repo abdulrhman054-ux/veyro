@@ -4,9 +4,12 @@ import { setSound } from "./audio";
 
 export type Theme = "day" | "night" | "system";
 export type Intensity = "calm" | "normal" | "lively";
-export type Prefs = { lang: Lang; theme: Theme; intensity: Intensity; reduceMotion: boolean; sound: boolean; showCost: boolean };
+export type TextSize = "normal" | "large" | "xlarge";
+export type Prefs = { lang: Lang; theme: Theme; intensity: Intensity; reduceMotion: boolean; sound: boolean; showCost: boolean;
+  textSize: TextSize; contrast: boolean; readAloud: boolean };
 
-const DEFAULTS: Prefs = { lang: "ar", theme: "day", intensity: "normal", reduceMotion: false, sound: true, showCost: true };
+const DEFAULTS: Prefs = { lang: "ar", theme: "day", intensity: "normal", reduceMotion: false, sound: true, showCost: true,
+  textSize: "normal", contrast: false, readAloud: false };
 const KEY = "veyro.prefs.v1";
 
 function load(): Prefs {
@@ -38,6 +41,8 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
     h.lang = prefs.lang; h.dir = prefs.lang === "ar" ? "rtl" : "ltr";
     h.dataset.theme = night ? "night" : "day";
     h.dataset.intensity = motionOff ? "off" : prefs.intensity;
+    h.dataset.textsize = prefs.textSize;
+    h.dataset.contrast = prefs.contrast ? "high" : "normal";
     document.title = prefs.lang === "ar" ? "فيرو · مكتب المجلس" : "Veyro · Council Office";
   }, [prefs, night, motionOff]);
 

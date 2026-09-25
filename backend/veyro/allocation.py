@@ -22,6 +22,26 @@ def fx(src: str, dst: str) -> float | None:
     return px["price"] if px else None
 
 
+def name_of(sym: str) -> dict:
+    """Company name in both languages when we know it (beginner universe or the Arabic alias list)."""
+    from .beginner import UNIVERSE
+    for rows in UNIVERSE.values():
+        for s, en, ar, *_ in rows:
+            if s == sym:
+                return {"en": en, "ar": ar}
+    for s, en, keys in market.ALIASES:
+        if s == sym:
+            ar = next((k for k in keys if any("\u0600" <= ch <= "\u06ff" for ch in k)), en)
+            return {"en": en, "ar": ar}
+    return {"en": sym, "ar": sym}
+
+
+def _reason(s: dict) -> dict:
+    v = s.get("verdict") or {}
+    texts = v.get("texts") or {}
+    return {lg: (texts.get(lg) or {}).get("reason") for lg in ("ar", "en")} | ({v.get("lang"): v.get("reason")} if v.get("lang") else {})
+
+
 def plan(sessions: list[dict], amount: float, currency: str = "USD") -> dict:
     notes: list[str] = []
     picks = []
@@ -30,9 +50,10 @@ def plan(sessions: list[dict], amount: float, currency: str = "USD") -> dict:
             continue
         conv = ((s.get("verdict") or {}).get("conviction")) or "unstated"
         picks.append({"ticker": s["ticker"], "rating": s["rating"], "conviction": conv, "session_id": s["id"],
-                      "w": WEIGHT[s["rating"]] * CONVICTION.get(conv, 1.0)})
+                      "name": name_of(s["ticker"]), "reason": _reason(s), "w": WEIGHT[s["rating"]] * CONVICTION.get(conv, 1.0)})
     chosen = {p["session_id"] for p in picks}
-    skipped = [{"ticker": s["ticker"], "rating": s.get("rating"), "session_id": s["id"]} for s in sessions if s["id"] not in chosen]
+    skipped = [{"ticker": s["ticker"], "rating": s.get("rating"), "session_id": s["id"], "status": s.get("status"),
+                "name": name_of(s["ticker"]), "reason": _reason(s)} for s in sessions if s["id"] not in chosen]
     if not picks:
         return {"amount": amount, "currency": currency, "rows": [], "cash_left": round(amount, 2), "skipped": skipped,
                 "notes": ["no_positive"]}

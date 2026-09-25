@@ -101,7 +101,11 @@
 
 1. Install Python 3.11+ and double-click **`start.bat`**. The browser opens `http://127.0.0.1:8765`.
 2. Try **Demo mode**, or add your API key in **Settings** (stored in Windows Credential Manager).
-3. Type a ticker and press **Start session**. You can also use a Watchlist (up to 5) or a Market scan.
+3. Type a ticker **or a company name** (Arabic or English) and press **Start session**. Other modes: **🌱 I'm new** (enter your amount, e.g. 1000 SAR: the team picks affordable well-known companies, analyses them and Leo splits the amount into whole shares, with a tip from every character), a **Watchlist** (pick up to 50 stocks), or a **Market scan** (up to 25 real candidates, tick the ones to analyse).
+   - Optional **budget**: the Portfolio Manager knows your free cash, scans only suggest affordable stocks, and Leo lists exactly which stocks to buy, how many shares and why.
+   - **Stop** ends a session immediately; a real session can be resumed from History.
+   - The office plays like a short film: every step has its own set (chart room, news studio, debate arena, Leo's office, risk room, newsroom, boardroom).
+   - Settings: any Claude model (or any provider the framework supports) with a recommended pair and a live list from your account; text size, high contrast and read-aloud.
 4. Optional **execution (Alpaca)**: Off by default. Paper keys give Paper (without keys, a labelled in-app Mock). Live needs live keys, Live limits and the typed phrase. Every order needs your confirmation, and limits are enforced on the server.
 
 ## For developers

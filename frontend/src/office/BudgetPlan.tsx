@@ -4,10 +4,12 @@ import { SpriteSvg } from "../art/Sprite";
 import { RATING, fmtNum } from "../i18n";
 import { usePrefs } from "../prefs";
 
+type Names = { ar: string; en: string };
+type Reasons = Partial<Record<"ar" | "en", string | null>>;
 export type PlanRow = { ticker: string; rating: string; conviction: string; session_id: string; target: number; price: number | null;
-  price_currency?: string; shares: number; cost: number; note: string | null };
+  price_currency?: string; shares: number; cost: number; note: string | null; name?: Names; reason?: Reasons };
 export type Plan = { amount: number; currency: string; rows: PlanRow[]; cash_left: number;
-  skipped: { ticker: string; rating: string | null; session_id: string }[]; notes: string[]; source?: string };
+  skipped: { ticker: string; rating: string | null; session_id: string; status?: string; name?: Names; reason?: Reasons }[]; notes: string[]; source?: string };
 
 export function money(v: number, cur: string, lang: "ar" | "en") {
   const n = fmtNum(v, lang, { maximumFractionDigits: 2, minimumFractionDigits: v % 1 ? 2 : 0 });
@@ -39,6 +41,39 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
         <SpriteSvg name="Leo" px={1} />
         <b style={{ fontSize: 18 }}>{ar ? `خطة ليو لمبلغ ${money(plan.amount, cur, lang)}` : `Leo's plan for ${money(plan.amount, cur, lang)}`}</b>
       </div>
+      {plan.rows.length > 0 && (
+        <div className="reco buy" role="note">
+          <b className="reco-h">✅ {ar ? "الفريق ينصح بشراء:" : "The team recommends buying:"}</b>
+          <ul>
+            {plan.rows.filter((r) => r.shares > 0).map((r) => (
+              <li key={r.ticker}>
+                <b>{r.name?.[lang] ?? r.ticker}</b> <span className="pixel ltr muted">({r.ticker})</span>
+                {" — "}<span>{ar ? `${fmtNum(r.shares, lang)} سهم بحوالي ${money(r.cost, cur, lang)}` : `${fmtNum(r.shares, lang)} shares, about ${money(r.cost, cur, lang)}`}</span>
+                {" · "}<span className={`vchip ${RATING[r.rating]?.tone ?? "none"}`}>{ar ? RATING[r.rating]?.ar : RATING[r.rating]?.en}</span>
+                {r.reason?.[lang] && <div className="muted" style={{ fontSize: 13 }}>{ar ? "ليش: " : "Why: "}{r.reason[lang]}</div>}
+              </li>
+            ))}
+            {plan.rows.filter((r) => r.shares === 0).map((r) => (
+              <li key={r.ticker}><b>{r.name?.[lang] ?? r.ticker}</b> <span className="pixel ltr muted">({r.ticker})</span>{" — "}
+                <span className="muted">{ar ? "قراره إيجابي بس نصيبه من المبلغ أقل من سعر سهم واحد" : "rated positively, but its share of the budget is less than one share"}</span></li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {plan.skipped.length > 0 && (
+        <div className="reco skip" role="note">
+          <b className="reco-h">⏸ {ar ? "ما ينصح بشرائها الآن:" : "Not recommended to buy right now:"}</b>
+          <ul>
+            {plan.skipped.map((s) => (
+              <li key={s.session_id}><b>{s.name?.[lang] ?? s.ticker}</b> <span className="pixel ltr muted">({s.ticker})</span>{" — "}
+                {s.rating ? <span className={`vchip ${RATING[s.rating]?.tone ?? "none"}`}>{ar ? RATING[s.rating]?.ar ?? s.rating : RATING[s.rating]?.en ?? s.rating}</span>
+                  : <span className="muted">{ar ? "ما اكتمل تحليله" : "analysis didn't finish"}</span>}
+                {s.reason?.[lang] && <div className="muted" style={{ fontSize: 13 }}>{ar ? "ليش: " : "Why: "}{s.reason[lang]}</div>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {plan.rows.length === 0 ? (
         <p style={{ margin: 0, lineHeight: 1.8 }}>{ar
           ? "ولا سهم من اللي حللناها طلع قراره «شراء» أو «زيادة». نصيحة الفريق: خلّ المبلغ نقد الحين وانتظر فرصة أوضح. زئير!"
@@ -69,8 +104,7 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
       )}
       <div className="row" style={{ justifyContent: "space-between" }}>
         <span>{ar ? "يبقى نقد" : "Left in cash"}: <b className="ltr">{money(plan.cash_left, cur, lang)}</b></span>
-        {plan.skipped.length > 0 && <span className="muted" style={{ fontSize: 13 }}>{ar ? "ما دخلت الخطة: " : "Not in the plan: "}
-          <span className="ltr">{plan.skipped.map((s) => `${s.ticker}${s.rating ? ` (${ar ? RATING[s.rating]?.ar ?? s.rating : RATING[s.rating]?.en ?? s.rating})` : ""}`).join("، ")}</span></span>}
+
       </div>
       <p className="muted" style={{ margin: 0, fontSize: 12, lineHeight: 1.7 }}>{ar
         ? "الأوزان من قرارات الفريق (شراء ضعف الزيادة التدريجية، وقوة القناعة تعدّلها)، وبحد أقصى 40٪ للسهم الواحد، بأسهم كاملة وأسعار Yahoo الحالية. مثال للتفكير وليس نصيحة مالية، ولا تنسَ رسوم الوسيط."

@@ -235,6 +235,22 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingScan?.nonce]);
 
+  // Keyboard: "/" jumps to the stock search, Space moves to the next line, Esc stops the session.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+      if (document.querySelector(".modal-bg")) return;
+      const officeShown = !!document.querySelector(".office") && (document.querySelector(".office") as HTMLElement).offsetParent !== null;
+      if (!officeShown) return;
+      if (e.key === "/" && !typing) { e.preventDefault(); (document.querySelector(".startbar .tsearch input") as HTMLInputElement | null)?.focus(); }
+      else if (e.key === " " && !typing && !(el?.tagName === "BUTTON")) { const d = document.querySelector("button.dlg") as HTMLButtonElement | null; if (d) { e.preventDefault(); d.click(); } }
+      else if (e.key === "Escape" && !typing && running) { void stop(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   async function stop() {
     if (stopReq) return;
     click(); setStopReq(true);
@@ -560,6 +576,15 @@ function Ranking({ scan, onOpen, onClose }: { scan: ScanView; onOpen: (id: strin
     <div className="modal-bg" role="dialog" aria-modal="true" aria-label={t.leaderboard}>
       <div className="modal">
         <h2 style={{ fontSize: 24, marginBottom: 6 }}>{t.leaderboard}</h2>
+        {(() => {
+          const buys = scan.ranking!.filter((r) => r.rating === "Buy" || r.rating === "Overweight");
+          return (
+            <div className={`reco ${buys.length ? "buy" : "skip"}`} role="note" style={{ marginBottom: 10 }}>
+              <b className="reco-h">{buys.length ? `✅ ${lang === "ar" ? "الفريق ينصح بشراء:" : "The team recommends buying:"} ` : `⏸ ${lang === "ar" ? "ولا سهم طلع قراره شراء هالمرة، الأفضل الانتظار." : "No stock came out as a buy this time; waiting is the call."}`}</b>
+              {buys.length > 0 && <span className="pixel ltr">{buys.map((r) => r.ticker).join(" · ")}</span>}
+            </div>
+          );
+        })()}
         <p className="muted" style={{ marginTop: 0 }}>{t.disclaimer}</p>
         <ol className="board-rank">
           {scan.ranking!.map((r, i) => (

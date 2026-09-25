@@ -181,6 +181,15 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
           <label className="toggle"><span>{t.reduceMotion}</span><input type="checkbox" checked={prefs.reduceMotion} onChange={(ev) => set({ reduceMotion: ev.target.checked })} /></label>
           <label className="toggle"><span>{t.voices}</span><input type="checkbox" checked={prefs.sound} onChange={(ev) => set({ sound: ev.target.checked })} /></label>
           <label className="toggle"><span>{t.showCost}</span><input type="checkbox" checked={prefs.showCost} onChange={(ev) => set({ showCost: ev.target.checked })} /></label>
+          <div className="label">{lang === "ar" ? "سهولة الاستخدام" : "Accessibility"}</div>
+          <Seg label={lang === "ar" ? "حجم الخط" : "Text size"} value={prefs.textSize}
+            options={[["normal", lang === "ar" ? "عادي" : "Normal"], ["large", lang === "ar" ? "كبير" : "Large"], ["xlarge", lang === "ar" ? "كبير جداً" : "Extra large"]]}
+            onPick={(v) => set({ textSize: v })} />
+          <label className="toggle"><span>{lang === "ar" ? "تباين عالٍ (ألوان أوضح)" : "High contrast"}</span><input type="checkbox" checked={prefs.contrast} onChange={(ev) => set({ contrast: ev.target.checked })} /></label>
+          <label className="toggle"><span>{lang === "ar" ? "اقرأ كلام الشخصيات بصوت عالٍ" : "Read the characters' lines aloud"}</span><input type="checkbox" checked={prefs.readAloud} onChange={(ev) => set({ readAloud: ev.target.checked })} /></label>
+          <p className="muted kbd-hint" style={{ margin: 0, lineHeight: 1.9 }}>{lang === "ar"
+            ? <>اختصارات: <kbd>/</kbd> البحث عن سهم · <kbd>Space</kbd> السطر التالي · <kbd>Esc</kbd> إيقاف الجلسة</>
+            : <>Shortcuts: <kbd>/</kbd> find a stock · <kbd>Space</kbd> next line · <kbd>Esc</kbd> stop the session</>}</p>
         </section>
 
         <section className="card cream stack" aria-labelledby="s-about">
