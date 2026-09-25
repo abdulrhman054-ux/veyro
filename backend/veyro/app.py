@@ -420,8 +420,11 @@ async def create_session(s: SessionIn):
     t = _ticker(s.ticker)
     if not s.demo and (r := _cap_reached()):
         return r
-    sid = runner.start_session(asyncio.get_running_loop(), t, s.lang, s.demo, trade_date=_trade_date(s.trade_date, t),
-                               budget=_budget(s.budget, s.budget_currency))
+    try:
+        sid = runner.start_session(asyncio.get_running_loop(), t, s.lang, s.demo, trade_date=_trade_date(s.trade_date, t),
+                                   budget=_budget(s.budget, s.budget_currency))
+    except runner.StillStopping:
+        return JSONResponse({"ok": False, "code": "still_stopping"})
     return {"id": sid}
 
 

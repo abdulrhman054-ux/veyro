@@ -257,6 +257,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
       const code = e instanceof ApiError ? e.code : "error";
       setErr(code === "invalid_ticker" ? t.invalidTicker : code === "screener_unavailable" ? t.unavailable
         : code === "bad_budget" ? (lang === "ar" ? "المبلغ غير صالح." : "That amount isn't valid.")
+        : code === "still_stopping" ? (lang === "ar" ? "التحليل السابق لنفس السهم يخلّص آخر خطوة بعد الإيقاف. جرّب بعد ثواني." : "The previous run of this stock is finishing its last step after Stop. Try again in a few seconds.")
         : code === "budget_cap" ? (lang === "ar" ? "وصلت سقف ميزانية التحليل لهذا الشهر. ارفعه من الإعدادات أو جرّب الوضع التجريبي." : "You've reached this month's analysis budget cap. Raise it in Settings or use demo mode.")
         : t.error);
     }

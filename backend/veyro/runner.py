@@ -803,6 +803,7 @@ class _CancellableStream:
                 with self.lock:
                     self.finished = True
                     fn = self.cleanup
+                ACTIVE_STREAMS.pop(id(cancel), None)
                 if fn:
                     try:
                         fn()
@@ -830,7 +831,11 @@ class _CancellableStream:
 
 
 def _cancellable(make, cfg: dict, cancel: threading.Event) -> _CancellableStream:
-    return _CancellableStream(make, cfg, cancel)
+    st = _CancellableStream(make, cfg, cancel)
+    with st.lock:
+        if not st.finished:
+            ACTIVE_STREAMS[id(cancel)] = st
+    return st
 
 
 def _defer_cleanup(stream, fn) -> bool:
@@ -940,10 +945,45 @@ def _run_demo(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
 
 
 # ---------------------------------------------------------------- start / scans
+# One real run per (stock, date, models): they share one framework checkpoint, so a second run at the same time
+# would "resume" the first one's half-written state. A new Start attaches to the running one instead; while a
+# stopped run's worker is still finishing its last step, a new one waits.
+RUN_KEYS: dict[tuple, str] = {}
+ACTIVE_STREAMS: dict[int, "_CancellableStream"] = {}   # id(cancel event) -> the stream worker still running
+_run_lock = threading.Lock()
+
+
+class StillStopping(Exception):
+    """The previous run of this stock is still finishing its last step after Stop."""
+
+
+def _key_busy(sid: str) -> str | None:
+    """'running', 'stopping' or None for an earlier session holding a run key."""
+    bus, cancel = BUSES.get(sid), CANCEL.get(sid)
+    stream = ACTIVE_STREAMS.get(id(cancel)) if cancel is not None else None
+    if bus is not None and not bus.closed and not (cancel is not None and cancel.is_set()):
+        return "running"
+    if stream is not None and not stream.finished:
+        return "stopping"
+    return None
+
+
 def start_session(loop: asyncio.AbstractEventLoop, ticker: str, lang: str, demo: bool,
                   scan_id: str | None = None, wait: bool = False, trade_date: str | None = None, budget: dict | None = None) -> str:
-    sid = uuid.uuid4().hex[:12]
     provider, quick, deep = settings_models()
+    if not demo:
+        key = (ticker.upper(), trade_date or today_for(ticker), provider, quick, deep)
+        with _run_lock:
+            prev = RUN_KEYS.get(key)
+            state = _key_busy(prev) if prev else None
+            if state == "running":
+                return prev          # the same analysis is already playing: follow it instead of paying twice
+            if state == "stopping":
+                raise StillStopping()
+            sid = uuid.uuid4().hex[:12]
+            RUN_KEYS[key] = sid
+    else:
+        sid = uuid.uuid4().hex[:12]
     db.create_session(sid, ticker, trade_date or today_for(ticker), "demo" if demo else "real",
                       None if demo else provider, None if demo else quick, None if demo else deep, lang, scan_id)
     BUSES[sid] = Bus(loop)
@@ -1003,7 +1043,19 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
                 bus.publish({"type": "scan_session", "index": i, "ticker": t, "session_id": sid, "reused": True})
                 db.set_setting(f"scan_extra:{scan_id}", (db.get_setting(f"scan_extra:{scan_id}") or []) + [sid])
             else:
-                sid = start_session(loop, t, lang, demo, scan_id=scan_id, budget=budget)
+                sid = None
+                for _ in range(400):   # the same stock's stopped run is finishing its last step: wait for it
+                    try:
+                        sid = start_session(loop, t, lang, demo, scan_id=scan_id, budget=budget)
+                        break
+                    except StillStopping:
+                        if stop.is_set():
+                            break
+                        time.sleep(0.3)
+                if sid is None:
+                    if stop.is_set():
+                        break
+                    raise StillStopping()
                 bus.publish({"type": "scan_session", "index": i, "ticker": t, "session_id": sid})
             while not BUSES[sid].closed:
                 if stop.is_set():

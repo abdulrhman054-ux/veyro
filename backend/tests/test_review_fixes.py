@@ -430,3 +430,34 @@ def test_backend_watchdog_exits_when_the_parent_dies():
     while child.poll() is None and time.time() - t0 < 5:
         time.sleep(0.1)
     assert child.poll() == 0 and "still here" not in (child.stdout.read() or "")
+
+
+def test_same_stock_same_day_attaches_instead_of_a_second_run(monkeypatch):
+    import asyncio
+    import threading
+    import time
+    from veyro import runner
+    gate = threading.Event()
+
+    def fake_real(sid, ticker, lang, em, cancel, trade_date, budget_):
+        gate.wait(5)
+        em.put({"type": "end", "status": "done"})
+    monkeypatch.setattr(runner, "_run_real", fake_real)
+    loop = asyncio.new_event_loop()
+    a = runner.start_session(loop, "ZZZ", "en", False)
+    b = runner.start_session(loop, "ZZZ", "en", False)
+    assert a == b                                    # attached, not a second paid run on one checkpoint
+    # a stopped run whose stream worker is still busy blocks a fresh start until it finishes
+    runner.CANCEL[a].set()
+    fake_stream = type("S", (), {"finished": False})()
+    runner.ACTIVE_STREAMS[id(runner.CANCEL[a])] = fake_stream
+    with pytest.raises(runner.StillStopping):
+        runner.start_session(loop, "ZZZ", "en", False)
+    runner.ACTIVE_STREAMS.pop(id(runner.CANCEL[a]))
+    gate.set()
+    t0 = time.time()
+    while not runner.BUSES[a].closed and time.time() - t0 < 5:
+        time.sleep(0.05)
+    c = runner.start_session(loop, "ZZZ", "en", False)
+    assert c != a
+    gate.set()
