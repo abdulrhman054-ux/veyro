@@ -677,7 +677,14 @@ async def _pump(ws: WebSocket, bus: runner.Bus | None):
 
 @app.websocket("/ws/sessions/{sid}")
 async def ws_session(ws: WebSocket, sid: str):
-    await _pump(ws, runner.BUSES.get(sid))
+    bus = runner.BUSES.get(sid)
+    if bus is None:   # finished long ago and pruned from memory: rebuild it from the database (no model calls)
+        s = db.get_session(sid)
+        if s and s["status"] != "running":
+            from . import extras
+            bus = runner.BUSES[sid] = runner.Bus(asyncio.get_running_loop())
+            await asyncio.to_thread(extras.replay, sid)
+    await _pump(ws, bus)
 
 
 @app.websocket("/ws/scans/{scan_id}")
@@ -713,7 +720,6 @@ async def ws_live(ws: WebSocket):
         while True:
             msg = await ws.receive_json()
             want = {str(x)[:20].upper() for x in (msg.get("want") or [])[:120] if TICKER_RE.match(str(x).upper()) or str(x).upper() in live.GOLD_G or str(x).upper() in live.base_symbols()}
-            hub.add_symbols({w for w in want if w not in live.GOLD_G})
             await ws.send_json({"type": "snapshot", "quotes": hub.update_want(q, want), "stream": hub.stream_ok})
 
     rtask = asyncio.create_task(reader())

@@ -461,3 +461,92 @@ def test_same_stock_same_day_attaches_instead_of_a_second_run(monkeypatch):
     c = runner.start_session(loop, "ZZZ", "en", False)
     assert c != a
     gate.set()
+
+
+# ---------------------------------------------------------------- live board: no unbounded growth, pause when idle
+def test_live_hub_symbols_follow_clients_and_alerts(monkeypatch):
+    import asyncio
+    from veyro import live
+    hub = live.LiveHub()
+    monkeypatch.setattr(hub, "_snapshot", lambda syms: None)
+    monkeypatch.setattr(hub, "_send_subscribe", lambda: None)
+    base = set(live.base_symbols())
+    loop = asyncio.new_event_loop()
+    assert not hub.active()
+    q, _ = hub.subscribe(loop, set())
+    hub.update_want(q, {"AAPL", "ZZZ1"})
+    assert {"AAPL", "ZZZ1"} <= hub.symbols and hub.active()
+    hub.update_want(q, {f"S{i}" for i in range(500)})             # a client asking for too much is capped
+    assert len(hub.symbols - base) <= hub.MAX_EXTRA and "ZZZ1" not in hub.symbols
+    hub.unsubscribe(q)
+    assert hub.symbols == base and not hub.active()               # nobody watching: back to the board's own list
+    hub.set_pinned({"ZZK"})
+    assert "ZZK" in hub.symbols and hub.active()                  # an active price alert keeps its symbol
+    hub.set_pinned(set())
+    assert "ZZK" not in hub.symbols
+
+
+def test_live_hub_backs_off_symbols_that_keep_failing():
+    import time
+    from veyro import live
+    hub = live.LiveHub()
+    now = time.time()
+    s = next(iter(hub.symbols))
+    for _ in range(3):
+        hub._failed(s)
+    assert s not in hub.due(now)
+    assert s in hub.due(now + hub.FAIL_RETRY_S + 1)
+
+
+def test_finished_session_buses_are_pruned_and_rebuilt_on_demand(monkeypatch):
+    import asyncio
+    import time
+    from veyro import extras, runner
+    db.create_session("prn1", "AAPL", "2026-09-25", "real", "anthropic", "q", "d", "en")
+    db.update_session("prn1", status="cancelled")
+    bus = runner.BUSES["prn1"] = runner.Bus(asyncio.new_event_loop())
+    runner.CANCEL["prn1"] = __import__("threading").Event()
+    bus.publish({"type": "end", "status": "cancelled"})
+    runner.prune(time.time() + 60)
+    assert "prn1" in runner.BUSES                                    # recent: kept
+    runner.prune(time.time() + runner.PRUNE_AFTER_S + 1)
+    assert "prn1" not in runner.BUSES and "prn1" not in runner.CANCEL
+    with _client("127.0.0.1").websocket_connect("/ws/sessions/prn1", headers={"host": "127.0.0.1:8765"}) as ws:
+        evs = []
+        while True:
+            e = ws.receive_json()
+            evs.append(e["type"])
+            if e["type"] == "end":
+                assert e["status"] == "cancelled"
+                break
+    assert evs[0] == "session"                                       # rebuilt from the database
+
+
+def test_relay_closes_its_client_when_anthropic_is_unreachable(monkeypatch):
+    import asyncio
+    import httpx
+    from starlette.requests import Request
+    from veyro import anthropic_relay
+    closed = []
+
+    async def boom(self, req, stream=False):
+        raise httpx.ConnectError("down")
+
+    async def aclose(self):
+        closed.append(1)
+    monkeypatch.setattr(httpx.AsyncClient, "send", boom)
+    monkeypatch.setattr(httpx.AsyncClient, "aclose", aclose)
+
+    async def receive():
+        return {"type": "http.request", "body": b"{}", "more_body": False}
+    req = Request({"type": "http", "method": "POST", "path": "/anthropic-relay/v1/messages", "headers": [], "query_string": b"",
+                   "client": ("127.0.0.1", 5000)}, receive)
+    r = asyncio.run(anthropic_relay.relay("v1/messages", req))
+    assert r.status_code == 502 and closed == [1]
+
+
+def test_exec_routes_refuse_the_dev_server_origin_by_default():
+    from veyro.execution import routes
+    assert "http://localhost:5173" not in routes.ALLOWED_ORIGINS
+    r = _client("127.0.0.1").post("/api/exec/mode", json={"mode": "paper"}, headers={"origin": "http://localhost:5173"})
+    assert r.status_code == 403

@@ -135,7 +135,7 @@
 ## For developers
 - Desktop app: `python tools/build_desktop.py` (bundles Python + packages into `desktop/runtime`, precompiled with unchecked-hash `.pyc` so no launch recompiles anything), then `npm run dist` in `desktop/` gives `desktop/dist/Veyro-Setup.exe` (recommended, fastest launches) and `desktop/dist/win-unpacked/`. `npm run dist:portable` also builds `Veyro-Portable.exe`.
 - Backend: `backend/` (FastAPI). Run `.venv\Scripts\python -m veyro` from `backend/`.
-- Frontend: `frontend/` (Vite + React + TS). Run `npm run dev` (proxies to 8765) and `npm run build` to update `frontend/dist`.
+- Frontend: `frontend/` (Vite + React + TS). Run `npm run dev` (proxies to 8765) and `npm run build` to update `frontend/dist`. To use the Orders screen from the dev server, start the backend with `VEYRO_DEV=1` (its origin is refused otherwise).
 - Tests: `.venv\Scripts\python -m pytest backend/tests -q`
 - Browser verification: `.venv\Scripts\python tools\verify_app.py` (screenshots go to `verification/`).
 - Design canvas generator: `.venv\Scripts\python tools\build_canvas.py <out>`.

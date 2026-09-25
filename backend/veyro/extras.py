@@ -52,7 +52,7 @@ def replay(sid: str) -> None:
     if v:
         bus.publish({"type": "verdict", **v, "price": {"price": s["price_at_verdict"], "spy": s["spy_at_verdict"],
                      "as_of": s["price_time"], "source": s["price_source"]}, "disclaimer": runner.DISCLAIMER.get(lang)})
-    bus.publish({"type": "end", "status": "done"})
+    bus.publish({"type": "end", "status": s["status"] if s["status"] in ("done", "cancelled", "error") else "done"})
 
 
 # ---------------------------------------------------------------- economy pre-screen (free, deterministic)
@@ -214,22 +214,29 @@ def add_price_alert(symbol: str, op: str, value: float) -> list[dict]:
         raise ValueError("bad_alert")
     with db.tx() as c:
         c.execute("INSERT INTO price_alerts(symbol,op,value,created_at) VALUES(?,?,?,?)", (symbol, op, float(value), db.now()))
+    _sync_pins()
+    return price_alerts()
+
+
+def _sync_pins() -> None:
+    """The live feed follows the symbols of active alerts only (fired or deleted alerts stop costing requests)."""
     try:
         from . import live
-        live.HUB.add_symbols({symbol})
+        live.HUB.set_pinned({a["symbol"] for a in price_alerts(True)})
     except Exception:  # noqa: BLE001
         pass
-    return price_alerts()
 
 
 def delete_price_alert(aid: int) -> list[dict]:
     with db.tx() as c:
         c.execute("DELETE FROM price_alerts WHERE id=?", (aid,))
+    _sync_pins()
     return price_alerts()
 
 
 def check_price(symbol: str, price: float) -> None:
     """Called on every live tick and by the scheduler; fires each alert once."""
+    fired = False
     with _alock:
         for a in db.q("SELECT * FROM price_alerts WHERE triggered_at IS NULL AND symbol=?", (symbol,)):
             hit = price >= a["value"] if a["op"] == "above" else price <= a["value"]
@@ -242,6 +249,9 @@ def check_price(symbol: str, price: float) -> None:
             add_alert("price", symbol, "Pip",
                       f"تنبيه سعر! {symbol} {word_ar} {a['value']:,.2f} (الآن {price:,.2f})، سكوااك!",
                       f"Price alert! {symbol} {word_en} {a['value']:,.2f} (now {price:,.2f}), squawk!")
+            fired = True
+    if fired:
+        _sync_pins()
 
 
 def check_all_prices() -> None:

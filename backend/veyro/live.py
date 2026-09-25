@@ -67,11 +67,15 @@ class LiveHub:
 
     STALE_STREAM_S = 90     # no stream tick for this long -> refresh from a snapshot
     POLL_EVERY_S = 20
+    MAX_EXTRA = 200         # symbols beyond the board's own that clients and alerts may add
+    FAIL_RETRY_S = 300      # a symbol with no data 3 times in a row is retried only every 5 minutes
 
     def __init__(self):
         self.lock = threading.Lock()
         self.quotes: dict[str, dict] = {}
-        self.symbols: set[str] = set(base_symbols())
+        self.symbols: set[str] = set(base_symbols())     # upstream = base + what clients want + alert symbols
+        self.pinned: set[str] = set()                     # price-alert symbols (kept while alerts exist)
+        self.fails: dict[str, tuple[int, float]] = {}     # symbol -> (failures in a row, last failure time)
         self.clients: dict[asyncio.Queue, tuple[asyncio.AbstractEventLoop, set[str]]] = {}
         self.started = False
         self.stream_ok = False
@@ -87,14 +91,35 @@ class LiveHub:
         threading.Thread(target=self._poll_loop, daemon=True, name="live-poll").start()
         threading.Thread(target=self._stream_loop, daemon=True, name="live-stream").start()
 
-    def add_symbols(self, syms: set[str]) -> None:
-        new = syms - self.symbols
-        if not new:
-            return
-        with self.lock:
-            self.symbols |= new
+    def _refresh_symbols(self) -> set[str]:
+        """Recompute the upstream set; returns the symbols that are new. Call with the lock held."""
+        want: set[str] = set()
+        for _, (_, w) in self.clients.items():
+            want |= {x for x in w if x not in GOLD_G}
+        extra = sorted((want | self.pinned) - set(base_symbols()))[: self.MAX_EXTRA]
+        new_set = set(base_symbols()) | set(extra)
+        added = new_set - self.symbols
+        self.symbols = new_set
+        return added
+
+    def _changed(self, added: set[str]) -> None:
         self._send_subscribe()
-        threading.Thread(target=self._snapshot, args=(sorted(new),), daemon=True).start()
+        if added:
+            threading.Thread(target=self._snapshot, args=(sorted(added),), daemon=True).start()
+
+    def add_symbols(self, syms: set[str]) -> None:
+        """Keep these symbols followed even with no Live screen open (price alerts)."""
+        with self.lock:
+            self.pinned |= set(syms)
+            added = self._refresh_symbols()
+        self._changed(added)
+
+    def set_pinned(self, syms: set[str]) -> None:
+        """Exactly these symbols stay followed without a Live screen (the active price alerts)."""
+        with self.lock:
+            self.pinned = set(syms)
+            added = self._refresh_symbols()
+        self._changed(added)
 
     # ------------------------------------------------------------ clients
     def subscribe(self, loop: asyncio.AbstractEventLoop, want: set[str]) -> tuple[asyncio.Queue, list[dict]]:
@@ -108,11 +133,21 @@ class LiveHub:
         with self.lock:
             if q in self.clients:
                 self.clients[q] = (self.clients[q][0], set(want))
-            return [dict(v) for k, v in self.quotes.items() if k in want]
+            added = self._refresh_symbols()
+            snap = [dict(v) for k, v in self.quotes.items() if k in want]
+        self._changed(added)
+        return snap
 
     def unsubscribe(self, q: asyncio.Queue) -> None:
         with self.lock:
             self.clients.pop(q, None)
+            self._refresh_symbols()     # symbols only this client wanted stop being followed
+        self._send_subscribe()
+
+    def active(self) -> bool:
+        """Anyone watching (or an alert to check)? With nobody, the hub pauses its upstream work."""
+        with self.lock:
+            return bool(self.clients) or bool(self.pinned)
 
     def _publish(self, quotes: list[dict]) -> None:
         with self.lock:
@@ -183,12 +218,15 @@ class LiveHub:
                 fi = yf.Ticker(sym).fast_info
                 p, pc = fi["lastPrice"], fi["previousClose"]
                 if p is None or p != p:
+                    self._failed(sym)
                     return None
+                self.fails.pop(sym, None)
                 return self._merge(sym, {"price": float(p), "prev_close": float(pc) if pc and pc == pc else None,
                                          "currency": fi.get("currency"), "day_high": fi.get("dayHigh"), "day_low": fi.get("dayLow"),
                                          "time": _iso(None), "live": False, "ts": time.time()})
             except Exception as e:  # noqa: BLE001
                 log.info("live snapshot failed for %s: %s", sym, type(e).__name__)
+                self._failed(sym)
                 return None
         with ThreadPoolExecutor(max_workers=8) as ex:
             got = [x for x in ex.map(one, syms) if x]
@@ -196,12 +234,30 @@ class LiveHub:
         if got:
             self._publish(got)
 
+    def _failed(self, sym: str) -> None:
+        n, _ = self.fails.get(sym, (0, 0.0))
+        self.fails[sym] = (n + 1, time.time())
+
+    def due(self, now: float) -> list[str]:
+        """Symbols to refresh from a snapshot: no fresh stream tick, and not a symbol that keeps failing (those wait)."""
+        with self.lock:
+            syms = list(self.symbols)
+        out = []
+        for s in syms:
+            if now - self.quotes.get(s, {}).get("ts", 0) <= self.STALE_STREAM_S:
+                continue
+            n, last = self.fails.get(s, (0, 0.0))
+            if n >= 3 and now - last < self.FAIL_RETRY_S:
+                continue
+            out.append(s)
+        return out
+
     def _poll_loop(self) -> None:
         self._snapshot(sorted(self.symbols))
         while not self._stop.wait(self.POLL_EVERY_S):
-            now = time.time()
-            with self.lock:
-                stale = [s for s in self.symbols if now - self.quotes.get(s, {}).get("ts", 0) > self.STALE_STREAM_S]
+            if not self.active():
+                continue          # nobody watching: no upstream requests
+            stale = self.due(time.time())
             if stale:
                 self._snapshot(stale)
 
@@ -223,6 +279,9 @@ class LiveHub:
         decoder = BaseWebSocket(verbose=False)
         backoff = 2
         while not self._stop.is_set():
+            if not self.active():
+                self._stop.wait(2)    # nobody watching: stay disconnected
+                continue
             try:
                 with connect("wss://streamer.finance.yahoo.com/?version=2", open_timeout=15) as ws:
                     self._ws = ws
@@ -230,7 +289,7 @@ class LiveHub:
                     backoff = 2
                     self._send_subscribe()
                     last_sub = time.time()
-                    while not self._stop.is_set():
+                    while not self._stop.is_set() and self.active():
                         if time.time() - last_sub > 15:    # Yahoo drops subscriptions that aren't refreshed
                             self._send_subscribe()
                             last_sub = time.time()

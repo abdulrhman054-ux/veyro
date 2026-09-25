@@ -108,6 +108,7 @@ class Bus:
         self.events: list[dict] = []
         self.subs: set[asyncio.Queue] = set()
         self.closed = False
+        self.closed_at: float | None = None
         self.lock = threading.Lock()
 
     def publish(self, ev: dict) -> None:
@@ -122,6 +123,7 @@ class Bus:
         if ev["type"] == "end":
             with self.lock:
                 self.closed = True
+                self.closed_at = time.time()
 
     def subscribe(self) -> tuple[asyncio.Queue, list[dict]]:
         q: asyncio.Queue = asyncio.Queue()
@@ -968,8 +970,30 @@ def _key_busy(sid: str) -> str | None:
     return None
 
 
+PRUNE_AFTER_S = 1800
+
+
+def prune(now: float | None = None) -> int:
+    """Forget finished sessions' in-memory event lists after 30 minutes with no viewer (each holds the whole film
+    plus price history; the desktop app can live in the tray for days). A later viewer gets it rebuilt from the
+    database (app.ws_session). Scan buses are small and kept."""
+    now = now or time.time()
+    gone = 0
+    for sid, bus in list(BUSES.items()):
+        if bus.closed and bus.closed_at and now - bus.closed_at > PRUNE_AFTER_S and not bus.subs:
+            BUSES.pop(sid, None)
+            CANCEL.pop(sid, None)
+            gone += 1
+    with _run_lock:
+        for k, sid in list(RUN_KEYS.items()):
+            if sid not in BUSES:
+                RUN_KEYS.pop(k, None)
+    return gone
+
+
 def start_session(loop: asyncio.AbstractEventLoop, ticker: str, lang: str, demo: bool,
                   scan_id: str | None = None, wait: bool = False, trade_date: str | None = None, budget: dict | None = None) -> str:
+    prune()
     provider, quick, deep = settings_models()
     if not demo:
         key = (ticker.upper(), trade_date or today_for(ticker), provider, quick, deep)

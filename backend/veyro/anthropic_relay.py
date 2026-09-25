@@ -44,7 +44,11 @@ async def relay(path: str, request: Request):
     body = await request.body()
     client = httpx.AsyncClient(timeout=httpx.Timeout(600, connect=20))
     req = client.build_request(request.method, f"{UPSTREAM}/{path}", params=request.query_params, headers=headers, content=body)
-    resp = await client.send(req, stream=True)
+    try:
+        resp = await client.send(req, stream=True)
+    except httpx.HTTPError:
+        await client.aclose()   # network down / connect timeout: don't leak the client
+        return Response(status_code=502)
     out_headers = {k: v for k, v in resp.headers.items() if k.lower() not in _HOP | {"content-encoding"}}
 
     async def gen():
