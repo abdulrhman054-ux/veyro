@@ -403,10 +403,10 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
 .report-nav .chip { cursor: pointer; }
 .report-summary { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; padding: 20px 24px; }
 .facts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 6px; }
-.phase { scroll-margin-top: 64px; }
+.phase { scroll-margin-top: calc(var(--topbar-h, 0px) + 72px); }
 .phase-h { display: flex; gap: 12px; align-items: center; border-bottom: 3px solid var(--line); padding-bottom: 8px; }
 .phase-n { width: 34px; height: 34px; border-radius: 10px; background: var(--orange); color: #3B2410; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
-#r-summary, #r-figures { scroll-margin-top: 64px; }
+#r-summary, #r-figures { scroll-margin-top: calc(var(--topbar-h, 0px) + 72px); }
 @media (max-width: 1000px) { .report { flex-direction: column; } .report > .left { width: 100%; } }
 /* scrollable modals are flex columns: children must not be squashed (a table used to lose rows) */
 .modal > *, .plan > *, .tablewrap { flex-shrink: 0; }
@@ -722,7 +722,7 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
 
 /* Phone width: the dialogue and verdict live under the (scaled) stage at a readable size. */
 .mobile-caption { position: relative; margin-top: 22px; }
-.mobile-caption .dlg { position: relative; left: auto; right: auto; top: auto; bottom: auto; width: auto; min-height: 0; max-height: none;
+.mobile-caption .dlg { position: relative; left: auto; right: auto; top: auto; bottom: auto; width: 100%; box-sizing: border-box; min-height: 0; max-height: none;
   padding: 24px 18px 18px; border-radius: 22px; animation: none; }
 .mobile-caption .dlg .tag { font-size: 15px; top: -14px; inset-inline-start: 16px; padding: 2px 12px; }
 .mobile-caption .dlg .dtext { font-size: 17px; line-height: 1.7; min-height: 0; }
@@ -755,3 +755,33 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
   .tools .pill .pill-label { display: none; }
   .tools .chip.mkt { font-size: 13px; white-space: nowrap; }
 }
+
+/* ---- Easter eggs: quips, the "don't buy this" cameo, five-tap pokes, party mode ---- */
+.quip { position: absolute; top: -62px; left: 50%; transform: translateX(-50%); z-index: 9; background: #FFFFFF; color: #5C4331; border-radius: 16px;
+  padding: 6px 12px; font-size: 14px; font-weight: 700; white-space: nowrap; box-shadow: 0 4px 0 #E3D5B8; animation: pop .45s steps(5) both; pointer-events: none; }
+.quip::after { content: ""; position: absolute; bottom: -8px; left: 50%; margin-left: -6px; border: 6px solid transparent; border-top-color: #FFFFFF; border-bottom: 0; }
+.quip-warn { background: #FFF1EC; color: #9E2F1C; border: 3px solid #D9573F; box-shadow: 0 4px 0 #B8412B; font-size: 17px; font-weight: 800; }
+.quip-warn::after { border-top-color: #D9573F; }
+.quip-party { background: #FFE9A8; color: #6B3F00; box-shadow: 0 4px 0 #D9A62E; }
+.quip-idle { opacity: .95; font-weight: 600; }
+.agent.poked .sprite { animation: spin .7s steps(8) 1, hopOnce .6s steps(6) .7s 1; }
+.clock { cursor: default; }
+.room.party .agent:not(.offstage) .sprite { animation: cheer .9s steps(6) infinite; }
+.room.party .agent:nth-child(odd):not(.offstage) .sprite { animation-delay: -.45s; }
+.room.party .mood-tint { background: transparent; }
+.disco { position: absolute; inset: 0; z-index: 8; pointer-events: none; overflow: hidden; }
+.disco .ball { position: absolute; left: 480px; top: -40px; width: 44px; height: 44px; border-radius: 50%;
+  background: repeating-conic-gradient(#E8EEF7 0 25%, #9AA7B8 0 50%) 0 0 / 11px 11px; box-shadow: 0 0 24px #FFFFFF; animation: ballDrop .8s steps(6) forwards, spin 3s linear .8s infinite; }
+.disco .ball::before { content: ""; position: absolute; left: 21px; top: -400px; width: 2px; height: 400px; background: #9AA7B8; }
+.disco .beam { position: absolute; left: 500px; top: 30px; width: 900px; height: 60px; transform-origin: 0 50%; opacity: .22; mix-blend-mode: screen; animation: beam 2.4s steps(12) infinite; }
+.disco .b0 { background: #FF5A7A; animation-delay: 0s } .disco .b1 { background: #FFD23F; animation-delay: -.4s } .disco .b2 { background: #3EC1D3; animation-delay: -.8s }
+.disco .b3 { background: #8B5CF6; animation-delay: -1.2s } .disco .b4 { background: #3CB371; animation-delay: -1.6s } .disco .b5 { background: #FF8C42; animation-delay: -2s }
+.party-banner { top: 110px; background: #FFD23F; box-shadow: 0 5px 0 #C99A1A; animation: banner 9s steps(20) both; }
+@keyframes ballDrop { from { top: -60px } to { top: 30px } }
+@keyframes beam { 0% { transform: rotate(10deg) } 50% { transform: rotate(170deg) } 100% { transform: rotate(10deg) } }
+:root[data-intensity="off"] .disco .beam, :root[data-intensity="off"] .disco .ball { animation: none; }
+:root[data-intensity="off"] .disco .ball { top: 30px; }
+:root[data-intensity="off"] .room.party .agent .sprite, :root[data-intensity="off"] .agent.poked .sprite { animation: none; }
+
+/* Section jumps land below the sticky header (Settings cards, fee block). */
+[id^="s-"], #fees-h { scroll-margin-top: calc(var(--topbar-h, 0px) + 24px); }

@@ -7,22 +7,11 @@ import type { History } from "../api";
 import type { AgentState } from "./useSession";
 import { faceFor, type Mood, type MoodInfo } from "./mood";
 import { ALBIE_AT, BLOCKING, OFFICE, SCENE_LABEL, type SceneId } from "./scenes";
+import { DONT_BUY, IDLE_QUIPS, POKED, REACTIONS, pick, quipFor, useParty } from "./fun";
 
 // Seats read right-to-left in the analysis order: Ollie, Buzz, Pip, Benny on the front row,
 // Leo at the head desk, the debaters and Tank in the back row.
 export const SEATS = OFFICE;
-
-const REACTIONS: Record<CharKey, { ar: string[]; en: string[] }> = {
-  Albie: { ar: ["يا جماعة عندي لكم لفّة على العالم!", "من فوق الغيوم شفت أخبار كثيرة!"], en: ["Fresh off the jet stream!", "I saw so much news from above the clouds!"] },
-  Ollie: { ar: ["هوو؟ أنا أراقب الشارت!", "نظارتي نظيفة اليوم، هوو هوو!"], en: ["Hoo? I'm watching the chart!", "Freshly polished glasses, hoot!"] },
-  Pip: { ar: ["عندك خبر؟ قلّي قلّي!", "سكوااك! لا تشدّ ريشي!"], en: ["Got news? Tell me tell me!", "Squawk! Mind the feathers!"] },
-  Buzz: { ar: ["بززز! الكل يسولف اليوم!", "ودّك نرقص رقصة النحل؟"], en: ["Bzzz! Everyone's chatting today!", "Want to see my waggle dance?"] },
-  Benny: { ar: ["لحظة… أحسب الأرقام، قرمش!", "القهوة والجداول، أحلى صباح!"], en: ["One sec… crunching numbers, chomp!", "Coffee and spreadsheets, perfect morning!"] },
-  Bolt: { ar: ["مووو! متحمس للجلسة!", "كل نزول فرصة، صح؟"], en: ["Moo-ve! Ready to go!", "Every dip's a chance, right?"] },
-  Bruno: { ar: ["غرر… خلني أركّز.", "أنا بس حذر، مو زعلان!"], en: ["Grr… let me focus.", "I'm careful, not grumpy!"] },
-  Tank: { ar: ["على مهلك… بثبات.", "الخوذة للسلامة، طبعاً!"], en: ["Slow and steady.", "Hard hat for safety, of course!"] },
-  Leo: { ar: ["أهلاً بك في المجلس! زئير!", "القرار يحتاج صبر، وأنا صبور."], en: ["Welcome to the council! Roar!", "Good calls need patience. I have plenty."] },
-};
 
 /** What each character is busy with while thinking (shown in their thought bubble). */
 const THINK: Record<CharKey, string> = { Ollie: "📈", Buzz: "💬", Pip: "📰", Benny: "🧮", Bolt: "🐂", Bruno: "🐻", Tank: "🛡️", Leo: "⚖️", Albie: "🌍" };
@@ -71,7 +60,7 @@ function zoneTime(d: Date, timeZone: string) {
 
 /** Wall clock shows the market's own time (Riyadh for a Tadawul stock, else New York); the ring is green while
  *  that market is open, red when closed. */
-function Clock({ marketOpen, lang, saudi = false }: { marketOpen: boolean | null; lang: Lang; saudi?: boolean }) {
+function Clock({ marketOpen, lang, saudi = false, onTap }: { marketOpen: boolean | null; lang: Lang; saudi?: boolean; onTap?: () => void }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 20_000); return () => clearInterval(t); }, []);
   const { h, m } = zoneTime(now, saudi ? "Asia/Riyadh" : "America/New_York");
@@ -79,7 +68,7 @@ function Clock({ marketOpen, lang, saudi = false }: { marketOpen: boolean | null
   const label = marketOpen === null ? (saudi ? "RUH" : "NY") : lang === "ar" ? (marketOpen ? "مفتوح" : "مقفل") : (marketOpen ? "OPEN" : "CLOSED");
   return (
     <>
-      <div className={`clock${marketOpen ? " live" : ""}`} aria-hidden="true" style={{ borderColor: ring }}>
+      <div className={`clock${marketOpen ? " live" : ""}`} aria-hidden="true" style={{ borderColor: ring }} onClick={onTap}>
         <i style={{ transform: `rotate(${(h % 12) * 30 + m / 2}deg)` }} /><b style={{ transform: `rotate(${m * 6}deg)` }} />
       </div>
       <div className="clock-tag" aria-hidden="true" style={{ background: ring }}>{label}</div>
@@ -127,7 +116,8 @@ function Whiteboard({ ticker, market, loaded, demo, lang, mood }: { ticker: stri
   );
 }
 
-export function Agent({ name, state, lang, index, mood, reaction, pos }: { name: Exclude<CharKey, "Albie">; state: AgentState; lang: Lang; index: number; mood: Mood; reaction?: string | null; pos?: [number, number] | null }) {
+export function Agent({ name, state, lang, index, mood, reaction, pos, quip, quipKind }: { name: Exclude<CharKey, "Albie">; state: AgentState; lang: Lang; index: number; mood: Mood; reaction?: string | null; pos?: [number, number] | null;
+  quip?: string | null; quipKind?: "warn" | "idle" | "party" }) {
   const offstage = pos === null;
   const [x, y] = pos ?? SEATS[name];
   // Walking to a new mark: show the walk for as long as the move takes.
@@ -142,20 +132,26 @@ export function Agent({ name, state, lang, index, mood, reaction, pos }: { name:
     return () => clearTimeout(h);
   }, [x, y]);
   const [react, setReact] = useState<string | null>(null);
+  const [poked, setPoked] = useState(false);
   const tm = useRef<number>(0);
+  const taps = useRef<number[]>([]);
   const onClick = () => {
     if (state === "speaking") return;
-    const pool = REACTIONS[name][lang];
-    const said = pool[Math.floor(Math.random() * pool.length)];
-    setReact(said);
+    // Five taps on the same character within four seconds: they've had enough.
+    const now = Date.now();
+    taps.current = [...taps.current.filter((t) => now - t < 4000), now];
+    const fed = taps.current.length >= 5;
+    if (fed) taps.current = [];
+    const said = fed ? POKED[name][lang] : pick(REACTIONS[name][lang]);
+    setReact(said); setPoked(fed);
     speakBlips(name, said);
     window.clearTimeout(tm.current);
-    tm.current = window.setTimeout(() => setReact(null), 2200);
+    tm.current = window.setTimeout(() => { setReact(null); setPoked(false); }, fed ? 3200 : 2200);
   };
   useEffect(() => () => window.clearTimeout(tm.current), []);
   const face = faceFor(name, mood);
   const cls = ["agent", `c-${name}`, state, react ? "react" : "", face ? `face-${face}` : "", reaction && !react && state !== "speaking" ? "listening" : "",
-    walking ? "walking" : "", offstage ? "offstage" : ""].join(" ");
+    walking ? "walking" : "", offstage ? "offstage" : "", poked ? "poked" : ""].join(" ");
   const emote = state === "thinking" ? THINK[name] : CHAR_INFO[name].emote;
   const onBreak = state === "break";
   return (
@@ -168,8 +164,11 @@ export function Agent({ name, state, lang, index, mood, reaction, pos }: { name:
       {reaction && state !== "speaking" && state !== "break" && <div className="reactmark pixel" aria-hidden="true">{reaction}</div>}
       {face === "worry" && <div className="sweat" aria-hidden="true" style={{ animationDelay: `-${(index * 0.53).toFixed(2)}s` }} />}
       {face === "happy" && <div className="spark pixel" aria-hidden="true" style={{ animationDelay: `-${(index * 0.61).toFixed(2)}s` }}>♪</div>}
+      {!react && quip && !offstage && (
+        <div className={`quip${quipKind ? ` quip-${quipKind}` : ""}`} role="status" dir={lang === "ar" ? "rtl" : "ltr"} data-quip={quipKind}>{quip}</div>
+      )}
       {react && (
-        <div role="status" style={{ position: "absolute", top: -58, left: "50%", transform: "translateX(-50%)", background: "#FFFFFF", color: "#5C4331", borderRadius: 16, padding: "6px 12px", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", boxShadow: "0 4px 0 #E3D5B8", zIndex: 9, direction: lang === "ar" ? "rtl" : "ltr" }}>{react}</div>
+        <div role="status" data-react={poked ? "poked" : "tap"} style={{ position: "absolute", top: -58, left: "50%", transform: "translateX(-50%)", background: "#FFFFFF", color: "#5C4331", borderRadius: 16, padding: "6px 12px", fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", boxShadow: "0 4px 0 #E3D5B8", zIndex: 9, direction: lang === "ar" ? "rtl" : "ltr" }}>{react}</div>
       )}
       <div className={`desk${name === "Leo" ? " gold" : ""}`}><div className="mug"><i /><i /></div><div className="lap"><b /></div><div className="note">{CHECK}</div></div>
       <div className="plate" style={{ background: charColor(name) }}>{charName(name, lang)}</div>
@@ -181,12 +180,17 @@ export function Agent({ name, state, lang, index, mood, reaction, pos }: { name:
 
 const ORDER: Exclude<CharKey, "Albie">[] = ["Ollie", "Buzz", "Pip", "Benny", "Bolt", "Bruno", "Tank", "Leo"];
 
-export function RoomScene({ ticker, market, marketLoaded, demo, agents, lang, children, starting, mood, marketOpen, scene = "office", heat = 0, verdictTone, speakTone }: {
+export function RoomScene({ ticker, market, marketLoaded, demo, agents, lang, children, starting, mood, marketOpen, scene = "office", heat = 0, verdictTone, speakTone, warn = false }: {
   ticker: string | null; market: History | null; marketLoaded: boolean; demo: boolean;
   agents: Record<CharKey, AgentState>; lang: Lang; children?: ReactNode; starting?: string | null;
   mood: MoodInfo; marketOpen: boolean | null; scene?: SceneId; heat?: number; verdictTone?: string | null; speakTone?: string | null;
+  /** the line being spoken is a clear risk warning */
+  warn?: boolean;
 }) {
-  const blocking = BLOCKING[scene];
+  // Bruno pops into the risk room to back up a clear warning, and says it again at a sell call.
+  const bruno = (scene === "risk" && warn) || (scene === "decision" && verdictTone === "sell");
+  const blocking = scene === "risk" && warn ? { ...BLOCKING.risk, Bruno: [110, 300] as [number, number] } : BLOCKING[scene];
+  const { party, partyKey, tapClock } = useParty();
   const { motionOff, prefs } = usePrefs();
   const intensity = prefs.intensity;
   // A scene card each time the set changes (not on the first, quiet office).
@@ -204,9 +208,16 @@ export function RoomScene({ ticker, market, marketLoaded, demo, agents, lang, ch
   const spot = speaker && speaker !== "Albie" ? blocking[speaker] ?? SEATS[speaker] : speaker === "Albie" ? ALBIE_AT[scene] : null;
   const idle = order.every((c) => agents[c] === "idle" || agents[c] === "break") && albie !== "speaking" && albie !== "thinking";
   const ambient = useAmbient(idle, order);
+  // Now and then the idle office chats (one in three ambient moments), chosen once per moment.
+  const [idleQuip, setIdleQuip] = useState<string | null>(null);
+  useEffect(() => { setIdleQuip(ambient && Math.random() < 0.34 ? quipFor(ambient, lang, IDLE_QUIPS) : null); }, [ambient, lang]);
+  const quipOf = (n: CharKey): { text: string; kind: "warn" | "idle" | "party" } | null =>
+    n === "Bruno" && bruno ? { text: DONT_BUY[lang], kind: "warn" }
+    : party && n === "Leo" ? { text: lang === "ar" ? "حفلة فيرو! الكل يرقص 🎉" : "Veyro party! Everybody dance 🎉", kind: "party" }
+    : idle && ambient === n && idleQuip ? { text: idleQuip, kind: "idle" } : null;
   const heatLevel = scene === "debate" ? Math.min(3, heat) : 0;
   const cls = ["room", `mood-${mood.mood}`, `scene-${scene}`, speaker ? `has-speaker speaker-${speaker}` : "", speaker && speakTone ? `tone-${speakTone}` : "",
-    heatLevel ? `heat-${heatLevel}` : "", verdictTone ? `verdict-${verdictTone}` : ""].join(" ");
+    heatLevel ? `heat-${heatLevel}` : "", verdictTone ? `verdict-${verdictTone}` : "", party ? "party" : ""].join(" ");
   return (
     <div className={cls}>
       {/* The camera: pushes in slowly on whoever is speaking, like a film cut to a close-up. */}
@@ -228,7 +239,7 @@ export function RoomScene({ ticker, market, marketLoaded, demo, agents, lang, ch
         <div className="c" style={{ top: 40, width: 28, animationDelay: "-3s" }} /><div className="c" style={{ top: 70, width: 22, animationDelay: "-10s" }} />
         {mood.mood === "slump" && <div className="rain" />}
       </div>
-      <Clock marketOpen={marketOpen} lang={lang} saudi={!!ticker && ticker.toUpperCase().endsWith(".SR")} />
+      <Clock marketOpen={marketOpen} lang={lang} saudi={!!ticker && ticker.toUpperCase().endsWith(".SR")} onTap={tapClock} />
       <Whiteboard ticker={ticker} market={market} loaded={marketLoaded} demo={demo} lang={lang} mood={mood} />
       <div className="plant" style={{ left: 12, top: 470 }}>{PLANT("#4E9E62", "#D9774E")}</div>
       <div className="plant" style={{ left: 928, top: 470, animationDelay: "-1.2s" }}>{PLANT("#6CC38E", "#E8A04A")}</div>
@@ -237,7 +248,9 @@ export function RoomScene({ ticker, market, marketLoaded, demo, agents, lang, ch
       </div>
       {spot && <div className="spotlight" aria-hidden="true" style={{ left: spot[0] + 75, top: spot[1] + 70 }} />}
       {scene === "debate" && <div className="versus pixel" aria-hidden="true">VS</div>}
+      {party && <div className="disco" key={`d-${partyKey}`} aria-hidden="true"><i className="ball" />{[0, 1, 2, 3, 4, 5].map((k) => <b key={k} className={`beam b${k}`} />)}</div>}
       {order.map((n, i) => <Agent key={n} name={n} state={agents[n]} lang={lang} index={i} mood={mood.mood} pos={blocking[n]}
+        quip={quipOf(n)?.text} quipKind={quipOf(n)?.kind}
         reaction={speaker ? REACT_TO[speaker]?.[n] ?? (scene === "debate" && heatLevel >= 2 && (n === "Bolt" || n === "Bruno") ? "💢" : null)
           : ambient === n ? CHAR_INFO[n].emote : null} />)}
       {/* Albie only lands when it's his scene (the server may already be preparing him while the debate still plays). */}
@@ -255,6 +268,7 @@ export function RoomScene({ ticker, market, marketLoaded, demo, agents, lang, ch
       <div className={`letterbox${card || scene === "decision" ? " on" : ""}`} aria-hidden="true"><i /><i /></div>
       {card && <div className="iris" key={`iris-${card.k}`} aria-hidden="true" />}
       {starting && <><div className="lights" key={`l-${starting}`} /><div className="banner pixel" key={`b-${starting}`}>{starting}</div></>}
+      {party && <div className="banner pixel party-banner" key={`pb-${partyKey}`} role="status">{lang === "ar" ? "🕺 وضع الحفلة! 🎉" : "🕺 PARTY MODE! 🎉"}</div>}
       {card && <div className="scene-card" key={`p-${card.id}-${card.k}`} dir={lang === "ar" ? "rtl" : "ltr"} role="status">
         <b className="pixel">{SCENE_LABEL[card.id].n}</b><span>{SCENE_LABEL[card.id][lang]}</span></div>}
       {children}

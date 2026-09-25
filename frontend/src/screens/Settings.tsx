@@ -4,7 +4,7 @@ import { SpriteSvg, charColor } from "../art/Sprite";
 import { PageHeader } from "../components/PageHeader";
 import { ShariaSettings } from "../extras/Sharia";
 import { DailyAssistantSettings } from "../assistant/Assistant";
-import { CHAR_ORDER, charName, fmtUsd } from "../i18n";
+import { CHAR_ORDER, charName, fmtUsd, parseNum } from "../i18n";
 import { usePrefs, type Intensity, type Theme } from "../prefs";
 
 const MODEL_LABEL: Record<string, string> = {
@@ -379,7 +379,7 @@ function BrokerFees({ settings, onChange, lang }: { settings: Settings; onChange
   const [msg, setMsg] = useState<string | null>(null);
   const save = async (m: "sa" | "us") => {
     const e = edit[m];
-    const rate = Number(e.rate || 0) / 100, minimum = Number(e.min || 0), vat = Number(e.vat || 0) / 100;
+    const rate = parseNum(e.rate) / 100, minimum = parseNum(e.min), vat = parseNum(e.vat) / 100;
     if (![rate, minimum, vat].every((x) => x >= 0 && Number.isFinite(x))) { setMsg(ar ? "اكتب أرقام صحيحة." : "Enter valid numbers."); return; }
     try { onChange(await api.put<Settings>("/api/fees", { market: m, rate, minimum, vat })); setMsg(ar ? "انحفظ ✓" : "Saved ✓"); }
     catch { setMsg(ar ? "ما انحفظ (تأكد إن النسبة أقل من 5٪)." : "Not saved (the rate must be under 5%)."); }
@@ -416,7 +416,9 @@ function CustomPrices({ settings, onChange, lang, pricing }: { settings: Setting
   const [msg, setMsg] = useState<string | null>(null);
   if (!models.length) return null;
   const save = async (m: string) => {
-    const [i, o] = (vals[m] ?? ["", ""]).map((x) => Number(x || 0));
+    const cur = settings.custom_prices?.[m];
+    // Untouched fields keep the saved price (an empty pair would delete it).
+    const [i, o] = (vals[m] ?? [cur ? String(cur[0]) : "", cur ? String(cur[1]) : ""]).map(parseNum);
     if (!(i >= 0 && o >= 0)) { setMsg(ar ? "اكتب أرقام صحيحة." : "Enter valid numbers."); return; }
     try { onChange(await api.put<Settings>("/api/prices", { model: m, input: i, output: o })); setMsg(ar ? "انحفظ ✓" : "Saved ✓"); }
     catch { setMsg(ar ? "ما انحفظ." : "Not saved."); }

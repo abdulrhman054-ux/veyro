@@ -170,7 +170,7 @@ export function VerdictBox({ v, lang, onOpenReport, demo, sessionId, extra, tick
         <span style={{ fontWeight: 800 }}>· {t.priceAtVerdict}:</span>
         <span className="pixel ltr">{price ? priceText(price, sessionTicker, lang) : t.unavailable}</span>
         {price && v.price?.as_of && v.price.as_of.length === 10 && <span className="muted" style={{ fontSize: 12 }} data-close-price>
-          {lang === "ar" ? `(إغلاق ${v.price.as_of}، السوق مقفل)` : `(close of ${v.price.as_of}; market closed)`}</span>}
+          {lang === "ar" ? `(سعر إغلاق ${v.price.as_of})` : `(close of ${v.price.as_of})`}</span>}
       </div>
       <div className="row" style={{ justifyContent: "center", marginTop: 10 }}>
         <button className="primary green btn" style={{ height: 42, fontSize: 16 }} onClick={onOpenReport}>{t.openReport}</button>

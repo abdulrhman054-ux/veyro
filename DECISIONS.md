@@ -208,3 +208,11 @@ Full findings: `docs/REVIEW.md`.
 ## Fourth round (owner: «قم بااتمام الباقي…», 2026-09-25)
 123. **Saudi market scan.** Yahoo's predefined screeners (day gainers, most actives…) are US-only, so the Saudi ones are built with yfinance `EquityQuery` on `region = sa` (exchange SAU), liquid names only (day volume > 100,000): top gainers, top losers, most active, low P/E (0–15). The budget filter compares prices in riyals. If Yahoo's screener fails or returns nothing, gainers/losers fall back to Veyro's own Saudi list moved by today's change, and the picker says so. Whether Yahoo's `region sa` screener returns full Tadawul coverage is unverified offline (REVIEW §8).
 124. **Header on one row from 1260 px.** Below that it wraps as before; the sound label and brand tagline are hidden on the one-row layout (the icon and a tooltip remain).
+125. **Easter eggs (owner request).** All on the Office stage, none of it touches the analysis:
+    - Tapping a character plays one of four jokes in their voice. Five taps within four seconds get a special line and a spin.
+    - The idle office sometimes chats: one ambient moment in three shows a short line.
+    - **Party mode:** the Konami code (↑↑↓↓←→←→BA; ignored while typing and on other screens) or five taps on the wall clock (for phones). It drops a disco ball and colour beams, the team dances and Leo announces it, for 9 s. With reduced motion it stays still.
+    - **"ورع، لا تشتري هذا!" / "Kid, don't buy this!"** Bruno walks into the risk room when the risk team's line is a *clear* warning (at least two more warning words than hopeful ones, the same word lists that drive the faces), and says it again at a Sell or Underweight verdict.
+      - It never appears at a Buy/Hold call, and it never replaces the risk team's line or Leo's reasons.
+      - Why this threshold: nearly every risk summary mentions "risk", so a plain majority would have Bruno say "don't buy" before most Buy calls, contradicting the verdict for no reason.
+    - The demo's risk line now reads as a clear warning, so the joke can be seen without a paid run.

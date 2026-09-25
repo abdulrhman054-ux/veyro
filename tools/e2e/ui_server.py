@@ -10,8 +10,10 @@ import runpy
 from veyro import market
 P = {"AAPL": 210.0, "MSFT": 420.0, "NVDA": 130.0, "KO": 68.0, "PG": 165.0, "SPY": 560.0, "2222.SR": 27.5, "2280.SR": 55.0,
      "7010.SR": 42.0, "1120.SR": 95.0, "1211.SR": 50.0, "JPM": 200.0, "9412.SR": 11.0, "SPYM": 70.0, "VT": 120.0, "USDSAR=X": 3.75, "SARUSD=X": 0.2667}
+NOPRICE = os.path.join(tempfile.gettempdir(), "veyro_e2e_noprice")   # a test creates this file to make FLKY's price vanish
+P["FLKY"] = 10.0
 def last_price(t):
-    if t not in P: return None
+    if t not in P or (t == "FLKY" and os.path.exists(NOPRICE)): return None
     return {"price": P[t], "currency": "SAR" if t.endswith(".SR") or t == "USDSAR=X" else "USD", "as_of": "2026-09-25T15:00:00+00:00", "source": "stub"}
 def history(t, period="3mo"):
     base = P.get(t, 100.0)

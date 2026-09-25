@@ -49,7 +49,7 @@ function Shell() {
   const [glossary, setGlossary] = useState(false);
   const [pendingStart, setPendingStart] = useState<{ ticker: string; trade_date: string; nonce: number } | null>(null);
   const [pendingScan, setPendingScan] = useState<{ id: string; nonce: number } | null>(null);
-  const openMorning = () => { api.get<{ morning_scan: string | null }>("/api/alerts").then((r) => { if (r.morning_scan) setPendingScan({ id: r.morning_scan, nonce: Date.now() }); go("office"); }).catch(() => go("office")); };
+  const openMorning = () => { api.get<{ morning_scan: string | null }>("/api/alerts").then((r) => { if (r.morning_scan) setPendingScan({ id: r.morning_scan, nonce: Date.now() }); goOfficeTop(); }).catch(() => goOfficeTop()); };
 
   useEffect(() => { api.get<Settings>("/api/settings").then(setSettings).catch(() => {}); }, []);
   useEffect(() => { setShariaConf(settings?.sharia); }, [settings]);
@@ -86,6 +86,8 @@ function Shell() {
     return () => { ro.disconnect(); window.removeEventListener("resize", set); };
   }, []);
   const go = (s: Screen) => { click(); unlockAudio(); switchTo(s); };
+  // Sent to the Office to start or watch something: land on the start bar and stage, not the old scroll spot.
+  const goOfficeTop = () => { scrollOf.current.office = 0; go("office"); };
   const openReport = useCallback((id: string) => {
     if (id !== reportRef.current) scrollOf.current.report = 0;   // another session's report starts at the top
     reportRef.current = id; setReportId(id); switchTo("report");
@@ -141,17 +143,17 @@ function Shell() {
         </div>
         {seen.has("report") && <div hidden={screen !== "report"}><Report sessionId={reportId} active={screen === "report"} /></div>}
         {seen.has("history") && <div hidden={screen !== "history"}><HistoryScreen onOpen={openReport} settings={settings} active={screen === "history"}
-          onResume={(ticker, trade_date) => { setPendingStart({ ticker, trade_date, nonce: Date.now() }); go("office"); }} /></div>}
+          onResume={(ticker, trade_date) => { setPendingStart({ ticker, trade_date, nonce: Date.now() }); goOfficeTop(); }} /></div>}
         {seen.has("world") && <div hidden={screen !== "world"}><WorldNews /></div>}
         {seen.has("live") && <div hidden={screen !== "live"}><LiveBoard active={screen === "live"}
-          onAnalyze={(tk) => { window.dispatchEvent(new CustomEvent("veyro:pick-ticker", { detail: tk })); go("office"); }} /></div>}
+          onAnalyze={(tk) => { window.dispatchEvent(new CustomEvent("veyro:pick-ticker", { detail: tk })); goOfficeTop(); }} /></div>}
         {seen.has("orders") && <div hidden={screen !== "orders"}><OrdersScreen onOpenSettings={() => go("settings")} active={screen === "orders"} /></div>}
         {seen.has("settings") && <div hidden={screen !== "settings"}><SettingsScreen settings={settings} onChange={setSettings} extra={<TradingSettings />} /></div>}
       </main>
       <Welcome />
       {glossary && <GlossaryModal onClose={() => setGlossary(false)} />}
       {busy && screen !== "office" && (
-        <button className="toast btn" style={{ border: 0, cursor: "pointer" }} onClick={() => go("office")}>{t.running} · {t.office}</button>
+        <button className="toast btn" style={{ border: 0, cursor: "pointer" }} onClick={goOfficeTop}>{t.running} · {t.office}</button>
       )}
     </div>
   );

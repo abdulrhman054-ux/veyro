@@ -11,6 +11,7 @@ import { BudgetPlan, money } from "./BudgetPlan";
 import { BeginnerGuide } from "./BeginnerGuide";
 import { AddToPaper } from "../extras/Paper";
 import { RoomScene, Stage } from "./Room";
+import { isWarning } from "./fun";
 import { useSession, type Line } from "./useSession";
 import { useLineText } from "./lineText";
 import { AskTeam, FavoritesStrip, StarButton, useAssistant } from "../assistant/Assistant";
@@ -117,22 +118,26 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
   const [bIndex, setBIndex] = useState<IndexFund[]>([]);
   const [bSharia, setBSharia] = useState<{ method: string; excluded: { symbol: string; status: string }[]; short: boolean; wanted: number } | null>(null);
   const [bMarkets, setBMarkets] = useState<Record<string, { open: boolean; name: { ar: string; en: string }; hours: { ar: string; en: string } }> | null>(null);
-  useEffect(() => { setBPicks(null); }, [bMarket, bRisk, bCount, budgetText, budgetCur]);
+  // Changing a choice drops the old picks and any answer still on its way for the old choice.
+  const bSeq = useRef(0), pSeq = useRef(0);
+  useEffect(() => { bSeq.current++; setBPicks(null); setBLoading(false); }, [bMarket, bRisk, bCount, budgetText, budgetCur]);
   // The amount follows the chosen market's currency (both markets: keep whatever the owner picked).
   useEffect(() => { if (mode === "beginner" && bMarket !== "both") setBudgetCur(bMarket === "sa" ? "SAR" : "USD"); }, [bMarket, mode]);
   async function suggestBeginner() {
     setErr(null);
     if (!budget) { setErr(lang === "ar" ? "اكتب المبلغ اللي معك أول (مثلاً 1000)." : "Enter the amount you have first (e.g. 1000)."); return; }
     setBLoading(true);
+    const my = ++bSeq.current;
     try {
       const r = await api.post<{ picks: BPick[]; prices_available: boolean; markets: typeof bMarkets; sharia?: typeof bSharia; index_funds?: IndexFund[] }>("/api/beginner/suggest",
         { amount: budget.amount, currency: budget.currency, market: bMarket, risk: bRisk, count: bCount });
+      if (my !== bSeq.current) return;   // the owner changed the market, amount or count meanwhile
       setBPicks(r.picks); setBChosen(new Set(r.picks.map((x) => x.symbol))); setBMarkets(r.markets); setBSharia(r.sharia ?? null); setBIndex(r.index_funds ?? []);
       if (!r.picks.length) setErr(r.prices_available
         ? (lang === "ar" ? "المبلغ ما يكفي لسهم واحد من الشركات المقترحة. جرّب مبلغ أكبر أو سوق ثاني." : "The amount doesn't cover one share of the suggested companies. Try a larger amount or another market.")
         : (lang === "ar" ? "أسعار السوق غير متوفرة الآن. جرّب بعد شوي." : "Market prices are unavailable right now. Try again shortly."));
-    } catch { setErr(t.error); }
-    setBLoading(false);
+    } catch { if (my === bSeq.current) setErr(t.error); }
+    if (my === bSeq.current) setBLoading(false);
   }
   const [spy, setSpy] = useState<History | null>(null);
   useEffect(() => {
@@ -169,7 +174,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
 
   const firstScanSession = scan?.sessions[0];
   useEffect(() => {
-    if (!scan || !firstScanSession || scan.sessions.includes(sessionId ?? "")) return;
+    if (!scan || scan.stopped || !firstScanSession || scan.sessions.includes(sessionId ?? "")) return;   // stopped before it began
     setSessionId(firstScanSession); setStarting(`${scan.tickers[0]} · 1/${scan.tickers.length}`); startJingle();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstScanSession]);
@@ -177,15 +182,15 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
   const scanClose = useRef<(() => void) | null>(null);
   useEffect(() => () => scanClose.current?.(), []);
 
-  const estimate = useMemo(() => {
+  // Recomputed every render (cheap): a memo here once missed the economy switch and hidden candidates.
+  const estimate = (() => {
     if (!settings) return null;
     if (demo) return t.free;
     const n = batchSize();
     const e = settings.estimate;
     if (!e.known || e.low === null || e.high === null) return t.estimateUnknown;
     return `${fmtUsd(e.low * n, lang)} – ${fmtUsd(e.high * n, lang)}`;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, demo, mode, picked, count, chosen, preview, bPicks, bChosen, bCount, lang, t]);
+  })();
 
   // The analysis's own cost compared with the amount being invested (a $5 analysis on $270 is ~2%).
   const [usdPer, setUsdPer] = useState<number | null>(1);
@@ -195,17 +200,18 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
     api.get<{ rate: number | null }>(`/api/fx?src=${budgetCur}&dst=USD`).then((r) => alive && setUsdPer(r.rate)).catch(() => alive && setUsdPer(null));
     return () => { alive = false; };
   }, [budgetCur]);
-  const costShare = useMemo(() => {
+  const costShare = (() => {
     const e = settings?.estimate;
     if (demo || !budget || !usdPer || !e?.known || e.high == null) return null;
     return (e.high * batchSize()) / (budget.amount * usdPer);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, demo, budget, usdPer, mode, picked, count, chosen, preview, bPicks, bChosen, bCount, economy, econTop]);
+  })();
 
   function batchSize() {
     if (mode === "single") return 1;
     if (mode === "beginner") return bPicks ? bChosen.size || 1 : bCount;
-    const n = mode === "watchlist" ? picked.length || 1 : preview && chosen.size ? chosen.size : count;
+    // Ticked candidates that the Sharia filter hides are not analysed, so they aren't counted.
+    const shown = preview && chosen.size ? preview.filter((c) => chosen.has(c.symbol) && !shHidden(c.symbol)).length : 0;
+    const n = mode === "watchlist" ? picked.length || 1 : preview && chosen.size ? shown || 1 : count;
     return economy && n > econTop ? econTop : n;
   }
 
@@ -347,13 +353,15 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
 
   async function loadPreview() {
     setPreviewState("loading");
+    const my = ++pSeq.current;
     try {
       const b = budget ? `&budget=${budget.amount}&currency=${budget.currency}` : "";
       const r = await api.get<{ available: boolean; candidates: Candidate[] }>(`/api/market/screen/${screener}?count=${count}${b}`);
+      if (my !== pSeq.current) return;   // another list was picked meanwhile
       setPreview(r.available ? r.candidates : []); setPreviewState(r.available ? "idle" : "none");
-    } catch { setPreview([]); setPreviewState("none"); }
+    } catch { if (my === pSeq.current) { setPreview([]); setPreviewState("none"); } }
   }
-  useEffect(() => { setPreview(null); setPreviewState("idle"); setChosen(new Set()); }, [screener, count, budget?.amount, budget?.currency]);
+  useEffect(() => { pSeq.current++; setPreview(null); setPreviewState("idle"); setChosen(new Set()); }, [screener, count, budget?.amount, budget?.currency]);
   useEffect(() => { if (preview) setChosen(new Set(preview.map((c) => c.symbol))); }, [preview]);
 
   const isDemo = state.mode === "demo" || (!sessionId && demo);
@@ -364,6 +372,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
     : sceneOf(state.current?.node, true) ?? sceneOf(state.queue[0]?.node) ?? sceneOf(state.lastNode) ?? "office";
   const heat = scene === "debate" ? state.debateLines + (state.current && sceneOf(state.current.node) === "debate" ? 1 : 0) : 0;
   const speakTone = state.current && state.current.kind !== "error" ? toneOf(state.current.texts?.[lang] ?? state.current.text) : null;
+  const warn = scene === "risk" && !!state.current && state.current.kind !== "error" && isWarning(state.current.texts?.[lang] ?? state.current.text);
   const verdictTone = state.verdictShown && state.verdict ? (RATING[state.verdict.rating]?.tone ?? null) : null;
   const verdictExtra = sessionId && state.verdict && state.ticker && renderVerdictExtra
     ? <>{renderVerdictExtra(sessionId, state.ticker, state.verdict.rating, state.mode === "demo")}
@@ -531,7 +540,10 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
                   <b>{lang === "ar" ? f.name_ar : f.name_en}</b><span className="pixel ltr muted">{f.symbol}</span>
                   <span>{f.what[lang]}</span>
                   {f.price != null && f.currency ? <span className="ltr">{money(f.price, f.currency, lang)}</span> : <span className="muted">{t.unavailable}</span>}
-                  {f.price != null && <span>{lang === "ar" ? `مبلغك يشتري ${f.units} وحدة (${money(f.cost ?? 0, budgetCur, lang)})` : `your amount buys ${f.units} units (${money(f.cost ?? 0, budgetCur, lang)})`}</span>}
+                  {f.price != null && <span>{f.units === 0
+                    ? (lang === "ar" ? "مبلغك ما يكفي لوحدة واحدة" : "your amount isn't enough for one unit")
+                    : lang === "ar" ? `مبلغك يشتري ${f.units === 1 ? "وحدة واحدة" : f.units === 2 ? "وحدتين" : `${fmtNum(f.units, lang)} ${f.units <= 10 ? "وحدات" : "وحدة"}`} (${money(f.cost ?? 0, budgetCur, lang)})`
+                    : `your amount buys ${f.units} unit${f.units === 1 ? "" : "s"} (${money(f.cost ?? 0, budgetCur, lang)})`}</span>}
                   {f.issuer_sharia && <span className="muted" style={{ fontSize: 12 }}>{lang === "ar" ? "☪ المُصدر يذكر أنه متوافق مع الشريعة" : "☪ the issuer states it is Sharia-compliant"}</span>}
                   {f.units > 0 && <AddToPaper items={[{ ticker: f.symbol, shares: f.units }]} label={lang === "ar" ? "📒 للمحفظة الافتراضية" : "📒 To the virtual portfolio"} />}
                 </div>
@@ -618,9 +630,9 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
         <Stage>
           <RoomScene ticker={state.ticker} market={state.market ?? (sessionId ? null : spy)} marketLoaded={state.marketLoaded}
             demo={isDemo} agents={state.agents} lang={lang} starting={starting} mood={mood}
-            marketOpen={(state.ticker ?? "").toUpperCase().endsWith(".SR") ? (marketsOpen?.sa.open ?? null) : usOpen}
+            marketOpen={(state.ticker ?? "").toUpperCase().endsWith(".SR") ? (marketsOpen?.sa.open ?? null) : (usOpen ?? marketsOpen?.us.open ?? null)}
             scene={state.ended && !state.verdict && !state.current ? "office" : scene} heat={heat} verdictTone={verdictTone === "none" ? null : verdictTone}
-            speakTone={speakTone}>
+            speakTone={speakTone} warn={warn}>
             {narrow ? null : dialog}
           </RoomScene>
         </Stage>

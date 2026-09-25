@@ -169,6 +169,12 @@ const en: Dict = {
 export const DICT: Record<Lang, Dict> = { ar, en };
 export type T = Dict;
 
+/** A number typed by the owner, in Western or Arabic-Indic digits ("٠٫١٥٥" = 0.155). NaN when it isn't one. */
+export function parseNum(text: string): number {
+  const t = text.trim().replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+    .replace(/٫/g, ".").replace(/[,\s٬]/g, "");
+  return t === "" ? 0 : Number(t);
+}
 export function fmtNum(n: number | null | undefined, lang: Lang, opts: Intl.NumberFormatOptions = {}) {
   if (n === null || n === undefined || Number.isNaN(n)) return null;
   return new Intl.NumberFormat(lang === "ar" ? "ar-SA-u-nu-latn" : "en-US", opts).format(n);

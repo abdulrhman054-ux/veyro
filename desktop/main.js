@@ -20,7 +20,7 @@ const DATA = !IS_PACKED ? path.join(__dirname, "..", "data")
   : path.join(BASE_DIR, "Veyro-Data");
 const ICON = path.join(__dirname, "build", "icon.png");
 
-let win = null, splash = null, tray = null, backend = null, port = 8765, quitting = false, toldTray = false, exitCode = null, fatal = false;
+let win = null, splash = null, tray = null, backend = null, port = 8765, quitting = false, toldTray = false, exitCode = null, fatal = false, exited = false;
 
 const GOT_LOCK = app.requestSingleInstanceLock();
 if (!GOT_LOCK) { app.quit(); }
@@ -63,7 +63,8 @@ async function startBackend() {
   });
   backend.stdout.pipe(log); backend.stderr.pipe(log);
   // If Python stops before a window exists, remember why; boot() shows it as soon as the splash is up.
-  backend.on("exit", (code) => { exitCode = code ?? "exit"; if (!quitting && (win || splash)) showFatal(exitCode); });
+  // Once the error screen is up (e.g. after a start timeout killed it), its exit must not replace the real cause.
+  backend.on("exit", (code) => { exited = true; exitCode = code ?? "exit"; if (!quitting && !fatal && (win || splash)) showFatal(exitCode); });
   for (let i = 0; i < 600; i++) {            // check often (open the window the moment it's ready), up to ~90 s
     if (exitCode !== null) return false;     // it died: don't keep waiting
     if (await healthy()) return true;
@@ -73,7 +74,7 @@ async function startBackend() {
 }
 
 function stopBackend() {
-  if (backend && !backend.killed) {
+  if (backend && !backend.killed && !exited) {   // never taskkill a PID Windows may have given to another process
     try { execFile("taskkill", ["/PID", String(backend.pid), "/T", "/F"], { windowsHide: true }); } catch { /* already gone */ }
   }
 }
@@ -95,9 +96,11 @@ function showFatal(code) {
   <div><div style="font-size:28px;font-weight:800">صار خلل في تشغيل المكتب</div><div style="margin-top:8px">Veyro's engine stopped (${code}). Close and open Veyro again.</div>
   <div style="margin-top:8px;font-size:13px;color:#7A6147">Veyro-Data/veyro-server.log</div>
   <button onclick="window.close()" style="margin-top:16px;font:inherit;padding:8px 22px;border-radius:12px;border:0;background:#F2A43A;color:#fff;cursor:pointer">إغلاق · Close</button></div></body></html>`);
-  const w = win || splash;
+  // The window the owner can see: the splash while the office is still loading (the main window is hidden then).
+  const w = splash && !splash.isDestroyed() ? splash : win;
   if (!w) return;
-  w.loadURL(html);
+  w.loadURL(html).catch(() => {});
+  w.show(); w.focus();   // also when it was hidden in the tray
   w.removeAllListeners("close");
   w.on("closed", quitAll);   // closing the error window ends Veyro (no hidden process holding the single-instance lock)
 }
@@ -129,7 +132,8 @@ async function boot() {
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: "deny" }; });
   win.webContents.on("will-navigate", (e, url) => { if (!url.startsWith(origin)) { e.preventDefault(); if (/^https?:\/\//.test(url)) shell.openExternal(url); } });
   win.webContents.session.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === "notifications"));
-  await win.loadURL(origin);
+  try { await win.loadURL(origin); } catch { /* the engine stopped while loading: showFatal has the splash */ }
+  if (fatal) return;
   splash.destroy(); splash = null;
   win.show();
   createTray();

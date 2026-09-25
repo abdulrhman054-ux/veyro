@@ -71,10 +71,14 @@ export function sceneOf(node: string | null | undefined, speaking = false): Scen
 export type Tone = "pos" | "neg" | "excited" | "calm";
 const POS = /(صعود|ارتفاع|قوي|قوية|فرصة|ممتاز|نمو|إيجابي|ايجابي|تفاؤل|شراء|زين|upside|bull|strong|growth|opportunit|positive|optimis|buy|beat|gain|rall)/i;
 const NEG = /(هبوط|انخفاض|ضعيف|ضعف|خطر|مخاطر|حذر|سلبي|تراجع|بيع|خسار|قلق|downside|bear|weak|risk|caution|negative|sell|loss|declin|concern|volatil)/i;
+export function toneScore(text: string | null | undefined): { p: number; n: number; bangs: number } {
+  if (!text) return { p: 0, n: 0, bangs: 0 };
+  return { p: (text.match(new RegExp(POS, "gi")) ?? []).length, n: (text.match(new RegExp(NEG, "gi")) ?? []).length,
+    bangs: (text.match(/!/g) ?? []).length };
+}
 export function toneOf(text: string | null | undefined): Tone {
   if (!text) return "calm";
-  const p = (text.match(new RegExp(POS, "gi")) ?? []).length, n = (text.match(new RegExp(NEG, "gi")) ?? []).length;
-  const bangs = (text.match(/!/g) ?? []).length;
+  const { p, n, bangs } = toneScore(text);
   if (p > n) return bangs >= 2 ? "excited" : "pos";
   if (n > p) return "neg";
   return bangs >= 2 ? "excited" : "calm";
