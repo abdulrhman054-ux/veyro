@@ -133,3 +133,15 @@ def test_small_budget_leftover_buys_whole_shares(monkeypatch):
     p = allocation.plan([sess(t, t, "Buy") for t in px], 300, "USD")
     got = {r["ticker"]: r["shares"] for r in p["rows"]}
     assert got["KO"] == 1 and got["PG"] == 1 and p["cash_left"] == 67.0
+
+
+def test_live_hub_ticks_change_and_gold_per_gram():
+    from veyro import live
+    hub = live.LiveHub()
+    hub.on_tick({"id": "AAPL", "price": 110.0, "previous_close": 100.0, "time": 1_700_000_000_000})
+    q = hub.quotes["AAPL"]
+    assert q["live"] and round(q["change_pct"], 6) == 10.0
+    hub.on_tick({"id": "SAR=X", "price": 3.75, "previous_close": 3.75})
+    hub.on_tick({"id": "GC=F", "price": 3110.34768, "previous_close": 3110.34768})
+    assert round(hub.quotes["GOLD24_SAR_G"]["price"], 2) == 375.0          # 3110.35 $/oz * 3.75 / 31.1035 g
+    assert round(hub.quotes["GOLD21_SAR_G"]["price"], 2) == 328.13

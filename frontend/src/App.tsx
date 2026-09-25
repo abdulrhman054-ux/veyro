@@ -12,10 +12,11 @@ import { OrdersScreen } from "./exec/OrdersScreen";
 import { ProposeButton } from "./exec/OrderTicket";
 import { TradingSettings } from "./exec/TradingSettings";
 import { WorldNews } from "./screens/WorldNews";
+import { LiveBoard } from "./screens/LiveBoard";
 import { Welcome } from "./components/Welcome";
 import { AlertsBell, AssistantProvider } from "./assistant/Assistant";
 
-type Screen = "office" | "world" | "report" | "history" | "orders" | "settings";
+type Screen = "office" | "live" | "world" | "report" | "history" | "orders" | "settings";
 
 const LEAF = (
   <svg width="42" height="42" viewBox="0 0 12 12" shapeRendering="crispEdges" aria-hidden="true">
@@ -72,9 +73,10 @@ function Shell() {
           <span style={{ textAlign: "start" }}><b>{t.brand}</b><small>{t.tagline}</small></span>
         </button>
         <nav className="nav" aria-label={t.nav}>
-          {(["office", "world", "report", "history", "orders", "settings"] as Screen[]).map((s) => (
+          {(["office", "live", "world", "report", "history", "orders", "settings"] as Screen[]).map((s) => (
             <button key={s} className="tab" aria-current={screen === s ? "page" : undefined} onClick={() => go(s)}>
-              {s === "orders" ? EXD[prefs.lang].orders : s === "world" ? (prefs.lang === "ar" ? "أخبار العالم" : "World news") : t[s]}
+              {s === "orders" ? EXD[prefs.lang].orders : s === "world" ? (prefs.lang === "ar" ? "أخبار العالم" : "World news")
+                : s === "live" ? <><span className="navlive" aria-hidden="true" />{prefs.lang === "ar" ? "مباشر" : "Live"}</> : t[s]}
             </button>
           ))}
         </nav>
@@ -100,6 +102,8 @@ function Shell() {
         {seen.has("history") && <div hidden={screen !== "history"}><HistoryScreen onOpen={openReport} settings={settings} active={screen === "history"}
           onResume={(ticker, trade_date) => { setPendingStart({ ticker, trade_date, nonce: Date.now() }); go("office"); }} /></div>}
         {seen.has("world") && <div hidden={screen !== "world"}><WorldNews /></div>}
+        {seen.has("live") && <div hidden={screen !== "live"}><LiveBoard active={screen === "live"}
+          onAnalyze={(tk) => { window.dispatchEvent(new CustomEvent("veyro:pick-ticker", { detail: tk })); go("office"); }} /></div>}
         {seen.has("orders") && <div hidden={screen !== "orders"}><OrdersScreen onOpenSettings={() => go("settings")} active={screen === "orders"} /></div>}
         {seen.has("settings") && <div hidden={screen !== "settings"}><SettingsScreen settings={settings} onChange={setSettings} extra={<TradingSettings />} /></div>}
       </main>

@@ -238,6 +238,13 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingScan?.nonce]);
 
+  // "Analyse" on the Live screen: put that stock in the start bar, ready to go.
+  useEffect(() => {
+    const f = (e: Event) => { const tk = (e as CustomEvent<string>).detail; if (tk && !running) { setMode("single"); setTicker(tk); setErr(null); } };
+    window.addEventListener("veyro:pick-ticker", f);
+    return () => window.removeEventListener("veyro:pick-ticker", f);
+  });
+
   // Keyboard: "/" jumps to the stock search, Space moves to the next line, Esc stops the session.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

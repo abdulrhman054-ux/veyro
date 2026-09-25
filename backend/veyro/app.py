@@ -573,6 +573,54 @@ async def ws_scan(ws: WebSocket, scan_id: str):
     await _pump(ws, runner.SCAN_BUSES.get(scan_id))
 
 
+# ---------------------------------------------------------------- live board
+@app.get("/api/live/catalog")
+def live_catalog():
+    from . import beginner, live
+    mk = beginner.market_status("both")
+    y = market.market_status()          # Yahoo knows US holidays; prefer it over regular hours when available
+    if y and y.get("open") is not None:
+        mk["us"]["open"] = bool(y["open"])
+    return {**live.catalog(), "markets": mk}
+
+
+@app.websocket("/ws/live")
+async def ws_live(ws: WebSocket):
+    """Streams quote updates for the symbols the screen asks for ({"want": [...]}), batched every 250 ms."""
+    from . import live
+    await ws.accept()
+    hub = live.HUB
+    hub.start()
+    loop = asyncio.get_running_loop()
+    q, snap = hub.subscribe(loop, set())
+
+    async def reader():
+        while True:
+            msg = await ws.receive_json()
+            want = {str(x)[:20].upper() for x in (msg.get("want") or [])[:120] if TICKER_RE.match(str(x).upper()) or str(x).upper() in live.GOLD_G or str(x).upper() in live.base_symbols()}
+            hub.add_symbols({w for w in want if w not in live.GOLD_G})
+            await ws.send_json({"type": "snapshot", "quotes": hub.update_want(q, want), "stream": hub.stream_ok})
+
+    rtask = asyncio.create_task(reader())
+    try:
+        while not rtask.done():
+            try:
+                batch = await asyncio.wait_for(q.get(), timeout=10)
+            except asyncio.TimeoutError:
+                await ws.send_json({"type": "ping", "stream": hub.stream_ok})
+                continue
+            await asyncio.sleep(0.25)          # gather a burst of ticks into one frame
+            while not q.empty():
+                batch += q.get_nowait()
+            latest = {x["symbol"]: x for x in batch}
+            await ws.send_json({"type": "ticks", "quotes": list(latest.values()), "stream": hub.stream_ok})
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        rtask.cancel()
+        hub.unsubscribe(q)
+
+
 # ---------------------------------------------------------------- Albie: world news
 @app.get("/api/world/news")
 def world_news(lang: str = "ar"):
