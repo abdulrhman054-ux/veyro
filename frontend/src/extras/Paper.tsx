@@ -7,8 +7,10 @@ import { money } from "../office/BudgetPlan";
 
 type Pos = { id: number; ticker: string; shares: number; entry_price: number; currency: string | null; opened_at: string; rating: string | null;
   closed_at: string | null; price_now: number | null; value: number | null; cost: number; ret: number | null; bench: string | null;
+  dividends?: number; fees?: number;
   bench_ret: number | null; alpha: number | null };
-type View = { positions: Pos[]; totals: { currency: string; cost: number; value: number; ret: number | null; bench_ret: number | null }[] };
+type View = { positions: Pos[]; totals: { currency: string; cost: number; value: number; ret: number | null; bench_ret: number | null }[];
+  combined_usd?: { currency: string; cost: number; value: number; ret: number | null } | null; fees_set?: boolean };
 
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${v >= 0 ? "+" : "−"}${fmtNum(Math.abs(v * 100), "en", { maximumFractionDigits: 2 })}%`);
 
@@ -45,11 +47,16 @@ export function PaperPortfolio({ active = true }: { active?: boolean }) {
               <span className="muted" style={{ fontSize: 12 }}>{ar ? "المؤشر بنفس الفترة" : "Index, same period"}: <span className="ltr">{pct(t.bench_ret)}</span></span>
             </div>
           ))}
+          {v.combined_usd && <div className="paper-total" data-combined>
+            <span className="muted">{ar ? "الكل بالدولار (مع حركة العملة)" : "All in US dollars (incl. currency moves)"}</span>
+            <b className="ltr">{money(v.combined_usd.value, "USD", lang)}</b>
+            <span className={`ltr ${(v.combined_usd.ret ?? 0) >= 0 ? "pos" : "neg"}`}>{pct(v.combined_usd.ret)}</span>
+          </div>}
         </div>
         <div className="tablewrap">
           <table className="plan-t">
             <thead><tr><th>{ar ? "السهم" : "Stock"}</th><th>{ar ? "القرار" : "Call"}</th><th>{ar ? "الأسهم" : "Shares"}</th><th>{ar ? "سعر الدخول" : "Entry"}</th>
-              <th>{ar ? "الآن" : "Now"}</th><th>{ar ? "العائد" : "Return"}</th><th>{ar ? "مقابل المؤشر" : "vs index"}</th><th /></tr></thead>
+              <th>{ar ? "الآن" : "Now"}</th><th>{ar ? "توزيعات" : "Dividends"}</th><th>{ar ? "رسوم" : "Fees"}</th><th>{ar ? "العائد" : "Return"}</th><th>{ar ? "مقابل المؤشر" : "vs index"}</th><th /></tr></thead>
             <tbody>
               {[...open, ...closed].map((p) => (
                 <tr key={p.id} style={{ opacity: p.closed_at ? 0.6 : 1 }}>
@@ -58,6 +65,8 @@ export function PaperPortfolio({ active = true }: { active?: boolean }) {
                   <td className="ltr">{fmtNum(p.shares, lang)}</td>
                   <td className="ltr">{money(p.entry_price, p.currency ?? "USD", lang)}</td>
                   <td className="ltr">{p.price_now != null ? money(p.price_now, p.currency ?? "USD", lang) : "—"}</td>
+                  <td className="ltr">{p.dividends ? money(p.dividends, p.currency ?? "USD", lang) : "—"}</td>
+                  <td className="ltr">{p.fees ? money(p.fees, p.currency ?? "USD", lang) : "—"}</td>
                   <td className={`ltr ${(p.ret ?? 0) >= 0 ? "pos" : "neg"}`}>{pct(p.ret)}</td>
                   <td className={`ltr ${(p.alpha ?? 0) >= 0 ? "pos" : "neg"}`}>{pct(p.alpha)}</td>
                   <td>{p.closed_at ? <span className="muted">{ar ? "مقفلة" : "closed"}</span>
@@ -69,7 +78,8 @@ export function PaperPortfolio({ active = true }: { active?: boolean }) {
             </tbody>
           </table>
         </div>
-        <p className="muted" style={{ margin: 0, fontSize: 12 }}>{ar ? "الأسعار من مصدر البيانات المختار. ما تشمل الرسوم ولا التوزيعات. للتعلّم وليس نصيحة مالية." : "Prices from the chosen data source; fees and dividends not included. For learning, not financial advice."}</p>
+        <p className="muted" style={{ margin: 0, fontSize: 12 }}>{ar ? `الأسعار من مصدر البيانات المختار. العائد بعد رسوم الدخول والخروج${v.fees_set ? "" : " (رسومك مو مدخلة في الإعدادات، فهي صفر هنا)"} ومع التوزيعات المستلمة. للتعلّم وليس نصيحة مالية.`
+          : `Prices from the chosen data source. Returns are after entry and exit fees${v.fees_set ? "" : " (your fees aren't entered in Settings, so they're zero here)"} and include dividends received. For learning, not financial advice.`}</p>
       </>}
     </section>
   );

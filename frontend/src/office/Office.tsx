@@ -27,7 +27,7 @@ type BPick = { symbol: string; name_en: string; name_ar: string; sector: string;
 type ScanView = { id: string; tickers: string[]; source: Candidate[] | null; sessions: string[]; results: Record<number, string | null>;
   ranking: { ticker: string; rating: string | null; session_id: string; status: string }[] | null; done: boolean; stopped?: boolean;
   budget?: Budget | null; beginner?: boolean; prescreen?: Prescreen[] | null; reused?: Record<number, boolean>; capped?: boolean };
-type Prescreen = { ticker: string; score: number | null; trend?: number; ret_3m?: number; vol?: number };
+type Prescreen = { ticker: string; score: number | null; trend?: number; ret_3m?: number; vol?: number; mode?: string; ret_12_1?: number; max_drop?: number };
 export type Budget = { amount: number; currency: "USD" | "SAR" };
 
 const FORM_KEY = "veyro.office.form.v1";
@@ -55,6 +55,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
   // Economy: a free price pre-screen, then the full (paid) team only on the best few.
   const [economy, setEconomy] = useState(false);
   const [econTop, setEconTop] = useState(3);
+  const [econMode, setEconMode] = useState<"momentum" | "steady">("momentum");
   // Reuse: this stock was already analysed today with the same models.
   const [reuseOffer, setReuseOffer] = useState<{ id: string; ticker: string; rating: string | null; at: string } | null>(null);
   useEffect(() => {
@@ -228,7 +229,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
             : `You're analysing ${paid} stocks, each a full session. Estimated cost ${fmtUsd((e.low ?? 0) * paid, lang)} – ${fmtUsd(e.high * paid, lang)}. Continue?`)) return;
         const body = { ...(tickers ? { kind: "watchlist", tickers } : { kind: "screener", screener, count }), lang, demo,
           budget: budget?.amount ?? null, budget_currency: budget?.currency ?? "USD",
-          economy_top: economy && mode !== "beginner" && n > econTop ? econTop : null };
+          economy_top: economy && mode !== "beginner" && n > econTop ? econTop : null, prescreen_mode: econMode };
         const r = mode === "beginner"
           ? await api.post<{ id: string; tickers: string[]; source: Candidate[] | null }>("/api/beginner/start",
               { amount: budget!.amount, currency: budget!.currency, market: bMarket, risk: bRisk, count: tickers!.length, tickers, lang, demo })
@@ -440,6 +441,12 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
             {lang === "ar" ? "💰 اقتصادي: حلّل أفضل" : "💰 Economy: analyse the best"}
             <select className="field" style={{ height: 32, padding: "0 6px", marginInlineStart: 6 }} value={econTop} disabled={running || !economy}
               onChange={(e) => setEconTop(Number(e.target.value))}>{[1, 2, 3, 5, 8, 10].map((k) => <option key={k} value={k}>{k}</option>)}</select>
+            <select className="field" style={{ height: 32, padding: "0 6px", marginInlineStart: 6 }} value={econMode} disabled={running || !economy}
+              aria-label={lang === "ar" ? "طريقة الفحص المجاني" : "Pre-screen method"} onChange={(e) => setEconMode(e.target.value as "momentum" | "steady")}
+              title={lang === "ar" ? "زخم: اللي صعد مؤخراً. ثابت: قوة على سنة بدون آخر شهر، مع عقوبة للتذبذب والهبوط الكبير." : "Momentum: what rose lately. Steady: 12-month strength skipping the last month, penalising swings and big drops."}>
+              <option value="momentum">{lang === "ar" ? "زخم" : "momentum"}</option>
+              <option value="steady">{lang === "ar" ? "ثابت" : "steady"}</option>
+            </select>
           </label>
         )}
         <label className="check"><input type="checkbox" checked={demo} onChange={(e) => setDemo(e.target.checked)} disabled={running} />{t.demoMode}</label>
@@ -617,7 +624,9 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
                     <b className="pixel ltr" style={{ minWidth: 60 }}>{p.ticker}</b>
                     <ShariaBadge symbol={p.ticker} />
                     <span className="ltr muted" style={{ fontSize: 12 }}>{p.score == null ? (lang === "ar" ? "بيانات غير كافية" : "not enough data")
-                      : `${lang === "ar" ? "3 شهور" : "3m"} ${fmtPct(p.ret_3m ?? 0, lang)} · ${lang === "ar" ? "اتجاه" : "trend"} ${fmtPct(p.trend ?? 0, lang)}`}</span>
+                      : p.mode === "steady"
+                        ? `${lang === "ar" ? "سنة بدون آخر شهر" : "12-1m"} ${fmtPct(p.ret_12_1 ?? 0, lang)} · ${lang === "ar" ? "أكبر هبوط" : "max drop"} ${fmtPct(-(p.max_drop ?? 0), lang)}`
+                        : `${lang === "ar" ? "3 شهور" : "3m"} ${fmtPct(p.ret_3m ?? 0, lang)} · ${lang === "ar" ? "اتجاه" : "trend"} ${fmtPct(p.trend ?? 0, lang)}`}</span>
                     <span className="muted" style={{ fontSize: 12 }}>{scan.tickers.includes(p.ticker) ? (lang === "ar" ? "✓ للتحليل الكامل" : "✓ full analysis") : ""}</span>
                   </li>
                 ))}

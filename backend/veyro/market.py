@@ -121,6 +121,18 @@ def history(ticker: str, period: str = "3mo") -> dict | None:
     return _cached(f"hist:{src}:{ticker}:{period}", 600, fetch)
 
 
+def dividends(ticker: str) -> list[tuple[str, float]]:
+    """Cash dividends per share as (ex-date, amount), from Yahoo; [] when none or unavailable. Cached for a day."""
+    def fetch():
+        try:
+            d = yf.Ticker(ticker).dividends
+            return [(i.strftime("%Y-%m-%d"), float(v)) for i, v in d.items() if v == v] if d is not None else []
+        except Exception as e:  # noqa: BLE001
+            log.info("dividends unavailable for %s: %s", ticker, type(e).__name__)
+            return []
+    return _cached(f"div:{ticker}", 86400, fetch)
+
+
 def sector(ticker: str) -> str | None:
     """Yahoo's sector name for a company (for the plan's sector cap), cached for a day. None when unknown."""
     def fetch():

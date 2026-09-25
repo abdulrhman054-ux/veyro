@@ -126,3 +126,39 @@ def test_beginner_index_funds_and_how_to_buy(monkeypatch):
         sharia.save_settings(enabled=False)
     h = beginner.how_to_buy("sa", "en")
     assert set(h) == {"sa"} and any("T+2" in x for x in h["sa"]) and any("limit order" in x for x in h["sa"])
+
+
+def test_prescreen_steady_prefers_steady_strength_over_a_spike(monkeypatch):
+    from veyro import extras
+    n = 253
+    steady = [100 * (1.0008 ** i) for i in range(n)]                      # slow, smooth climb
+    spike = [100.0] * (n - 30) + [100 * (1.02 ** k) for k in range(1, 31)]  # flat, then a sharp last-month run
+    h = {"S": {"closes": steady}, "P": {"closes": spike}}
+    monkeypatch.setattr(market, "history", lambda t, period="3mo": h.get(t))
+    mom = [r["ticker"] for r in extras.prescreen(["S", "P"], "momentum")]
+    std = [r["ticker"] for r in extras.prescreen(["S", "P"], "steady")]
+    assert mom[0] == "P" and std[0] == "S"
+    assert extras.prescreen(["X"], "steady")[0]["score"] is None      # no data goes last, never guessed
+
+
+def test_paper_counts_fees_dividends_and_currency(monkeypatch):
+    from veyro import extras, runner
+    with db.tx() as c:
+        c.execute("DELETE FROM paper")
+    PX.update({"KO": 100.0, "SPY": 500.0, "2222.SR": 30.0, "^TASI.SR": 12000.0})
+    monkeypatch.setattr(runner, "benchmark_for", lambda t: "^TASI.SR" if t.endswith(".SR") else "SPY")
+    monkeypatch.setattr(market, "dividends", lambda t: {"KO": [("2020-01-01", 9.0), ("2999-01-01", 1.0)]}.get(t, []))
+    allocation.save_fees("us", rate=0.01, minimum=0, vat=0)          # 1% each way
+    extras.paper_add("KO", 10)                                        # cost 1000 + fee 10
+    db.q("SELECT 1")
+    with db.tx() as c:
+        c.execute("UPDATE paper SET opened_at='2019-12-01T00:00:00+00:00' WHERE ticker='KO'")
+    v = extras.paper_view()
+    ko = next(r for r in v["positions"] if r["ticker"] == "KO")
+    assert ko["dividends"] == pytest.approx(90.0)                     # only the dividend already paid, x10 shares
+    assert ko["fees"] == pytest.approx(20.0)                          # in and (estimated) out
+    assert ko["ret"] == pytest.approx((1000 - 10 + 90) / 1010 - 1)
+    extras.paper_add("2222.SR", 10)
+    v = extras.paper_view()
+    assert v["combined_usd"] and v["combined_usd"]["currency"] == "USD" and v["combined_usd"]["cost"] > 0
+    allocation.save_fees("us", rate=0, minimum=0, vat=0)

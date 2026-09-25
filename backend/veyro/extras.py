@@ -56,39 +56,75 @@ def replay(sid: str) -> None:
 
 
 # ---------------------------------------------------------------- economy pre-screen (free, deterministic)
-def prescreen(tickers: list[str]) -> list[dict]:
-    """Rank by recent price behaviour only (free Yahoo data, no model): trend vs the 50-day average,
-    3-month return, and a penalty for volatility. A filter to decide where to spend, not a verdict."""
+PRESCREEN_MODES = ("momentum", "steady")
+
+
+def prescreen(tickers: list[str], mode: str = "momentum") -> list[dict]:
+    """Rank by recent price behaviour only (free Yahoo data, no model). A filter to decide where to spend, not a verdict.
+    momentum: trend vs the 50-day average x2 + 3-month return - 0.3 x volatility (favours what already ran up).
+    steady:   12-month return skipping the last month - 0.5 x volatility - 0.5 x worst 6-month drop
+              (favours steady long-run strength over a recent spike)."""
     from concurrent.futures import ThreadPoolExecutor
+    mode = mode if mode in PRESCREEN_MODES else "momentum"
+
+    def vol_of(cs):
+        rets = [cs[i] / cs[i - 1] - 1 for i in range(max(1, len(cs) - 63), len(cs))]
+        return math.sqrt(sum(r * r for r in rets) / len(rets)) * math.sqrt(252)
 
     def one(t: str) -> dict:
-        h = market.history(t, "6mo")
+        h = market.history(t, "1y" if mode == "steady" else "6mo")
         cs = (h or {}).get("closes") or []
-        if len(cs) < 30:
-            return {"ticker": t, "score": None, "note": "no_data"}
+        if len(cs) < (150 if mode == "steady" else 30):
+            return {"ticker": t, "score": None, "note": "no_data", "mode": mode}
         last = cs[-1]
+        vol = vol_of(cs)
+        if mode == "steady":
+            m12_1 = cs[-22] / cs[0] - 1                       # skip the last month (short-term reversal)
+            peak, dd = cs[-126], 0.0
+            for c in cs[-126:]:
+                peak = max(peak, c)
+                dd = max(dd, 1 - c / peak)
+            score = m12_1 - 0.5 * vol - 0.5 * dd
+            return {"ticker": t, "score": round(score, 4), "ret_12_1": round(m12_1, 4), "vol": round(vol, 4),
+                    "max_drop": round(dd, 4), "mode": mode}
         ma50 = sum(cs[-50:]) / len(cs[-50:])
         r3m = last / cs[-min(63, len(cs))] - 1
-        rets = [cs[i] / cs[i - 1] - 1 for i in range(max(1, len(cs) - 63), len(cs))]
-        vol = math.sqrt(sum(r * r for r in rets) / len(rets)) * math.sqrt(252)
         trend = last / ma50 - 1
         score = trend * 2 + r3m - vol * 0.3
-        return {"ticker": t, "score": round(score, 4), "trend": round(trend, 4), "ret_3m": round(r3m, 4), "vol": round(vol, 4)}
+        return {"ticker": t, "score": round(score, 4), "trend": round(trend, 4), "ret_3m": round(r3m, 4), "vol": round(vol, 4), "mode": mode}
     with ThreadPoolExecutor(max_workers=8) as ex:
         rows = list(ex.map(one, tickers))
     return sorted(rows, key=lambda r: (r["score"] is None, -(r["score"] or 0)))   # no data goes last
 
 
 # ---------------------------------------------------------------- virtual portfolio
+def _fee(ticker: str, value: float) -> float:
+    """The owner's broker fee (Settings) for a trade worth `value` in the stock's own currency; 0 when not entered."""
+    from .allocation import _fee_fn, fees, market_of
+    return round(_fee_fn(fees().get(market_of(ticker)) or {}, 1.0)(value), 4)
+
+
+def _divs(ticker: str | None, start: str, end: str | None) -> float:
+    """Dividends per share with an ex-date after `start` and up to `end` (or today)."""
+    if not ticker:
+        return 0.0
+    end = (end or db.now())[:10]
+    return sum(v for d, v in market.dividends(ticker) if start[:10] < d <= end)
+
+
 def paper_add(ticker: str, shares: float, session_id: str | None = None, rating: str | None = None) -> dict:
+    from .allocation import fx
     px = market.last_price(ticker)
     if not px:
         raise ValueError("no_price")
     bench = runner.benchmark_for(ticker)
     b = market.last_price(bench)
+    cur = px.get("currency") or "USD"
     with db.tx() as c:
-        c.execute("INSERT INTO paper(ticker,shares,entry_price,currency,bench,bench_entry,opened_at,session_id,rating) VALUES(?,?,?,?,?,?,?,?,?)",
-                  (ticker, shares, px["price"], px.get("currency"), bench, b["price"] if b else None, db.now(), session_id, rating))
+        c.execute("INSERT INTO paper(ticker,shares,entry_price,currency,bench,bench_entry,opened_at,session_id,rating,fee_in,fx_usd_entry) "
+                  "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                  (ticker, shares, px["price"], cur, bench, b["price"] if b else None, db.now(), session_id, rating,
+                   _fee(ticker, px["price"] * shares), fx(cur, "USD")))
     return paper_view()
 
 
@@ -101,8 +137,8 @@ def paper_close(pid: int) -> dict:
         b = market.last_price(row["bench"]) if row["bench"] else None
         # the index is frozen at the same moment as the stock, so a closed position's alpha stops moving
         with db.tx() as c:
-            c.execute("UPDATE paper SET closed_at=?, exit_price=?, bench_exit=? WHERE id=?",
-                      (db.now(), px["price"], b["price"] if b else None, pid))
+            c.execute("UPDATE paper SET closed_at=?, exit_price=?, bench_exit=?, fee_out=? WHERE id=?",
+                      (db.now(), px["price"], b["price"] if b else None, _fee(row["ticker"], px["price"] * row["shares"]), pid))
     return paper_view()
 
 
@@ -113,20 +149,35 @@ def paper_remove(pid: int) -> dict:
 
 
 def paper_view() -> dict:
+    """Each position's result after the owner's broker fees (in and out) and with dividends received, against its
+    index over the same time (index dividends included where the benchmark is a fund that pays them).
+    Totals per currency, plus everything combined in US dollars at the entry and current exchange rates,
+    so currency moves show up too."""
+    from .allocation import fx
     rows = db.q("SELECT * FROM paper ORDER BY opened_at DESC")
     totals: dict[str, dict] = {}
+    usd = {"cost": 0.0, "value": 0.0, "known": True}
     for r in rows:
         now = r["exit_price"] if r["closed_at"] else ((market.last_price(r["ticker"]) or {}).get("price"))
         bnow = r.get("bench_exit") if r["closed_at"] else ((market.last_price(r["bench"]) or {}).get("price") if r["bench"] else None)
+        fee_in = r.get("fee_in") or 0.0
+        fee_out = (r.get("fee_out") or 0.0) if r["closed_at"] else (_fee(r["ticker"], now * r["shares"]) if now else 0.0)
+        div = _divs(r["ticker"], r["opened_at"], r["closed_at"]) * r["shares"]
         r["price_now"] = now
-        r["value"] = now * r["shares"] if now else None
-        r["cost"] = r["entry_price"] * r["shares"]
-        r["ret"] = now / r["entry_price"] - 1 if now else None
-        r["bench_ret"] = bnow / r["bench_entry"] - 1 if bnow and r["bench_entry"] else None
+        r["dividends"] = round(div, 4)
+        r["fees"] = round(fee_in + fee_out, 4)
+        r["cost"] = r["entry_price"] * r["shares"] + fee_in
+        r["value"] = now * r["shares"] - fee_out + div if now else None
+        r["ret"] = r["value"] / r["cost"] - 1 if r["value"] is not None and r["cost"] else None
+        bdiv = _divs(r["bench"], r["opened_at"], r["closed_at"]) if r["bench"] and not r["bench"].startswith("^") else 0.0
+        r["bench_ret"] = (bnow + bdiv) / r["bench_entry"] - 1 if bnow and r["bench_entry"] else None
         r["alpha"] = r["ret"] - r["bench_ret"] if r["ret"] is not None and r["bench_ret"] is not None else None
         cur = r["currency"] or "USD"
-        t = totals.setdefault(cur, {"currency": cur, "cost": 0.0, "value": 0.0, "bench_weighted": 0.0, "bench_cost": 0.0, "known": True})
+        t = totals.setdefault(cur, {"currency": cur, "cost": 0.0, "value": 0.0, "bench_weighted": 0.0, "bench_cost": 0.0, "known": True,
+                                    "fees": 0.0, "dividends": 0.0})
         t["cost"] += r["cost"]
+        t["fees"] += r["fees"]
+        t["dividends"] += r["dividends"]
         if r["value"] is None:
             t["known"] = False
         else:
@@ -134,10 +185,19 @@ def paper_view() -> dict:
         if r["bench_ret"] is not None:
             t["bench_weighted"] += r["cost"] * r["bench_ret"]
             t["bench_cost"] += r["cost"]
+        fx_in, fx_now = r.get("fx_usd_entry") or (1.0 if cur == "USD" else None), fx(cur, "USD")
+        if fx_in and fx_now and r["value"] is not None:
+            usd["cost"] += r["cost"] * fx_in
+            usd["value"] += r["value"] * fx_now
+        else:
+            usd["known"] = False
     for t in totals.values():
         t["ret"] = t["value"] / t["cost"] - 1 if t["cost"] and t["known"] else None
         t["bench_ret"] = t["bench_weighted"] / t["bench_cost"] if t["bench_cost"] else None   # only rows with an index return
-    return {"positions": rows, "totals": list(totals.values()), "source": market.SOURCE}
+    combined = {"currency": "USD", "cost": round(usd["cost"], 2), "value": round(usd["value"], 2),
+                "ret": usd["value"] / usd["cost"] - 1 if usd["known"] and usd["cost"] else None} if len(totals) > 1 else None
+    return {"positions": rows, "totals": list(totals.values()), "combined_usd": combined, "source": market.SOURCE,
+            "fees_set": any(v.get("set") for v in __import__("veyro.allocation", fromlist=["x"]).fees().values())}
 
 
 # ---------------------------------------------------------------- price alerts

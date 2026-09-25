@@ -545,6 +545,7 @@ class ScanIn(BaseModel):
     tickers: list[str] = []
     reuse: bool = True              # reopen today's finished analysis of a stock instead of paying again
     economy_top: int | None = None  # economy mode: free price pre-screen, full analysis only on the best N
+    prescreen_mode: str = "momentum"  # 'momentum' | 'steady' 
     screener: str | None = None
     count: int = 3
     lang: str = "ar"
@@ -586,7 +587,7 @@ def create_scan(s: ScanIn):
     prescreen = None
     if s.economy_top and 0 < s.economy_top < len(tickers):
         from . import extras
-        prescreen = extras.prescreen(tickers)
+        prescreen = extras.prescreen(tickers, s.prescreen_mode)
         tickers = [r["ticker"] for r in prescreen if r["score"] is not None][:s.economy_top] or tickers[:s.economy_top]
     scan_id = runner.start_scan(_loop(), s.kind, tickers, s.screener, source, s.lang, s.demo,
                                 budget=_budget(s.budget, s.budget_currency), reuse=s.reuse and not s.demo)
