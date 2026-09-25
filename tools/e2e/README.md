@@ -1,7 +1,7 @@
 # Browser end-to-end tests
 
 `tools/e2e/run_all.sh` starts `ui_server.py` (the app with a fake model, stubbed prices and a fake live feed,
-isolated data dir, port 8766) and runs three Playwright suites:
+isolated data dir, port 8766) and runs five Playwright suites:
 
 - `ui_test.py`: search by Arabic name, full session to verdict, minutes expander, Stop, beginner mode,
   screens kept across navigation, report phases, model list, 390 px width, console errors.
