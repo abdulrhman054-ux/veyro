@@ -307,8 +307,16 @@ def learning(enrich) -> dict:
     rows = [enrich(r) for r in db.list_sessions(500) if r["mode"] == "real" and r["status"] == "done"]
     month = datetime.now().strftime("%Y-%m")
 
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_min_age_days())
+
     def score(r):
         if r.get("ret") is None or r.get("spy_ret") is None or r["rating"] not in RATING_ORDER:
+            return None
+        try:   # same rule as the trust dashboard: judge a call only after the holding period
+            t = datetime.fromisoformat(r.get("finished_at") or r.get("created_at") or "")
+            if (t if t.tzinfo else t.replace(tzinfo=timezone.utc)) > cutoff:
+                return None
+        except ValueError:
             return None
         ex = r["ret"] - r["spy_ret"]
         d = {"Buy": 1, "Overweight": 1, "Hold": 0, "Underweight": -1, "Sell": -1}[r["rating"]]
@@ -349,14 +357,35 @@ def learning(enrich) -> dict:
             "framework": {"settled": len(fw), "mean_alpha": (sum(alphas) / len(alphas)) if alphas else None}}
 
 
+def _min_age_days() -> int:
+    """The framework's holding period (trading days) in calendar days: 5 trading days = 7 calendar days."""
+    try:
+        from tradingagents.default_config import DEFAULT_CONFIG
+        return max(1, round(int(DEFAULT_CONFIG.get("holding_period_days", 5)) * 7 / 5))
+    except Exception:  # noqa: BLE001
+        return 7
+
+
 def trust(rows: list[dict]) -> dict:
     """How the team's calls did, with no model involved: each finished real call is scored by the stock's
     return since the verdict minus its benchmark's (the market index) over the same time.
     Buy/Overweight is "right" when it beat the index, Underweight/Sell when it lagged. Hold isn't scored."""
     DIR = {"Buy": 1, "Overweight": 1, "Hold": 0, "Underweight": -1, "Sell": -1}
+    min_age = _min_age_days()
+    cutoff = datetime.now(timezone.utc) - timedelta(days=min_age)
+
+    def young(r) -> bool:
+        """A call is only judged after the framework's own holding period; a minutes-old call is noise, not a hit or miss."""
+        try:
+            t = datetime.fromisoformat(r.get("finished_at") or r.get("created_at") or "")
+        except ValueError:
+            return True
+        return (t if t.tzinfo else t.replace(tzinfo=timezone.utc)) > cutoff
 
     def scored(r):
         if r.get("ret") is None or r.get("spy_ret") is None or r.get("rating") not in DIR or DIR[r["rating"]] == 0:
+            return None
+        if young(r):
             return None
         ex = r["ret"] - r["spy_ret"]
         return {"hit": ex * DIR[r["rating"]] > 0, "excess": ex, "signed": ex * DIR[r["rating"]]}
@@ -389,4 +418,6 @@ def trust(rows: list[dict]) -> dict:
         "by_model": [{"model": k, **agg(v["items"]), "sessions": v["sessions"],
                       "avg_cost": (v["cost"] / v["priced"]) if v["priced"] else None} for k, v in by_model.items()],
         "min_sample": 10,
+        "pending": sum(1 for r in rows if r.get("rating") in DIR and DIR[r["rating"]] != 0 and young(r)),
+        "min_age_days": min_age,
     }

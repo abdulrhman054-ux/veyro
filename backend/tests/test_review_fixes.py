@@ -266,3 +266,17 @@ def test_beginner_guide_covers_settlement_limits_horizon_and_index_funds():
     assert "T+2" in sa and "10%" in sa and "T+1" in us and "7%, 13% or 20%" in us
     static = " ".join(en for _, en in beginner.STATIC_TIPS.values())
     assert "emergency fund" in static and "long run" in static and "index fund" in static
+
+
+# ---------------------------------------------------------------- trust dashboard: don't score calls younger than the holding period
+def test_trust_does_not_score_calls_minutes_old():
+    # Seen in the UI: three Buy calls a few minutes old, stock and index both flat -> "0% hit rate".
+    from datetime import datetime, timedelta, timezone
+    from veyro import assistant
+    now = datetime.now(timezone.utc)
+    fresh = {"rating": "Buy", "ret": 0.0, "spy_ret": 0.0, "created_at": now.isoformat(), "finished_at": now.isoformat()}
+    old = {"rating": "Buy", "ret": 0.05, "spy_ret": 0.01, "created_at": (now - timedelta(days=20)).isoformat(),
+           "finished_at": (now - timedelta(days=20)).isoformat()}
+    t = assistant.trust([fresh, fresh, fresh, old])
+    assert t["overall"]["n"] == 1 and t["overall"]["hits"] == 1
+    assert t["pending"] == 3 and t["min_age_days"] >= 7

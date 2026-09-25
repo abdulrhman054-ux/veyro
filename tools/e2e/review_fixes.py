@@ -110,6 +110,21 @@ with sync_playwright() as p:
           and "AAOIFI" in rp.first.inner_text() and "2026-06-30" in rp.first.inner_text(), rp.first.inner_text()[:160] if rp.count() else "")
     page.screenshot(path=OUT + "sharia_on_report.png", full_page=True)
 
+    # --- History shows Saudi prices in riyals (was: "27.50 US$" for 2222.SR)
+    put_settings(page, {"sharia_enabled": False})
+    page.locator("nav button", has_text="Office").click(); page.wait_for_timeout(400)
+    if page.locator(".modal-bg button.primary", has_text="Close").count(): page.locator(".modal-bg button.primary", has_text="Close").click()
+    page.locator(".seg button").nth(1).click()
+    page.locator(".tsearch input").first.fill("2222.SR")
+    page.locator(".startbar button.primary").click(); page.wait_for_timeout(500)
+    if page.locator("[role=alertdialog] button.ghost").count(): page.locator("[role=alertdialog] button.ghost").first.click()
+    advance_until(page, lambda: page.locator("main > div:not([hidden]) .verdict-box").count() > 0, 300)
+    page.locator("nav button", has_text="History").click(); page.wait_for_timeout(2500)
+    row = page.locator("main > div:not([hidden]) tr", has_text="2222.SR").first
+    rt = row.inner_text() if row.count() else ""
+    check("History shows Saudi prices in SAR, not dollars", "SAR" in rt and "$" not in rt, rt.replace("\n", " | ")[:160])
+    check("trust dashboard doesn't score minutes-old calls", page.locator("text=calls younger than").count() > 0)
+    put_settings(page, {"sharia_enabled": True})
     # --- switch methodology: MSCI (total-assets based) is accepted and results follow it
     check("methodology switch saved", put_settings(page, {"sharia_method": "msci"}) == 200)
     # --- turn it off again: app back to exactly the old behaviour

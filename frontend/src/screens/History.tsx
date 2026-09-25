@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { PaperPortfolio } from "../extras/Paper";
 import { TrustDashboard } from "../extras/Trust";
 import { api, type SessionRow } from "../api";
-import { RATING, fmtDate, fmtPct, fmtUsd } from "../i18n";
+import { RATING, fmtDate, fmtPct } from "../i18n";
+import { priceText } from "../office/Dialog";
 import { usePrefs } from "../prefs";
 import { EXD } from "../exec/execI18n";
 import { PageHeader } from "../components/PageHeader";
@@ -63,8 +64,8 @@ export function HistoryScreen({ onOpen, onResume, settings, active = true }: { o
                         <td><b className="pixel ltr" style={{ fontSize: 18 }}>{r.ticker}</b>{r.mode === "demo" && <span className="chip demo" style={{ marginInlineStart: 6, height: 22, fontSize: 12 }}>{t.demo}</span>}</td>
                         <td>{rt ? <span className={`vchip ${rt.tone}`}>{lang === "ar" ? rt.ar : rt.en}</span> : <span className="muted">{r.status}</span>}</td>
                         <td>{fmtDate(r.created_at, lang)}</td>
-                        <td className="pixel ltr">{r.price_at_verdict ? fmtUsd(r.price_at_verdict, lang) : t.unavailable}</td>
-                        <td className="pixel ltr">{r.price_now ? fmtUsd(r.price_now, lang) : t.unavailable}</td>
+                        <td className="pixel ltr">{r.price_at_verdict ? priceText(r.price_at_verdict, r.ticker, lang) : t.unavailable}</td>
+                        <td className="pixel ltr">{r.price_now ? priceText(r.price_now, r.ticker, lang) : t.unavailable}</td>
                         <td className={`pixel ltr ${r.ret != null ? (r.ret >= 0 ? "pos" : "neg") : ""}`}>{fmtPct(r.ret, lang) ?? "—"}</td>
                         <td className={`pixel ltr ${r.spy_ret != null ? (r.spy_ret >= 0 ? "pos" : "neg") : ""}`}>{r.benchmark ?? "SPY"} {fmtPct(r.spy_ret, lang) ?? "—"}</td>
                         <td style={{ fontWeight: 800 }}>{s === "beat" ? <span className="pos">{t.beat}</span> : s === "lagged" ? <span className="neg">{t.lagged}</span> : s === "neutral" ? <span className="muted">{t.neutral}</span> : "—"}</td>

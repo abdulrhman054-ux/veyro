@@ -7,7 +7,7 @@ import { usePrefs } from "../prefs";
 type Agg = { n: number; hits: number; hit_rate: number | null; avg_edge: number | null; sessions?: number };
 type Trust = { overall: Agg & { sessions: number }; months: (Agg & { month: string; sessions: number })[];
   by_rating: Record<string, Agg & { sessions: number }>; by_model: (Agg & { model: string; sessions: number; avg_cost: number | null })[];
-  min_sample: number; paper: { currency: string; ret: number | null; bench_ret: number | null }[] };
+  min_sample: number; pending?: number; min_age_days?: number; paper: { currency: string; ret: number | null; bench_ret: number | null }[] };
 
 const pct = (v: number | null | undefined, signed = false) => v == null ? "—"
   : `${signed ? (v >= 0 ? "+" : "−") : ""}${fmtNum(Math.abs(v * 100), "en", { maximumFractionDigits: 1 })}%`;
@@ -36,7 +36,8 @@ export function TrustDashboard({ active = true }: { active?: boolean }) {
 
       <div className="trust-tiles">
         <div className="stat"><span className="muted">{ar ? "قرارات محسوبة" : "Scored calls"}</span><b className="ltr">{fmtNum(o.n, lang)}</b>
-          <span className="muted small">{ar ? `من ${fmtNum(o.sessions, lang)} جلسة` : `of ${fmtNum(o.sessions, lang)} sessions`}</span></div>
+          <span className="muted small">{ar ? `من ${fmtNum(o.sessions, lang)} جلسة` : `of ${fmtNum(o.sessions, lang)} sessions`}</span>
+          {!!d.pending && <span className="muted small">{ar ? `${fmtNum(d.pending, lang)} قرار أحدث من ${d.min_age_days} أيام تنتظر (ما نحكم على قرار قبل فترة الاحتفاظ)` : `${fmtNum(d.pending, lang)} calls younger than ${d.min_age_days} days are waiting (a call isn't judged before its holding period)`}</span>}</div>
         <div className="stat"><span className="muted">{ar ? "نسبة الإصابة" : "Hit rate"}</span><b className="ltr">{pct(o.hit_rate)}</b>
           <span className="muted small">{ar ? "العشوائي حوالي 50٪" : "a coin flip is about 50%"}</span></div>
         <div className="stat"><span className="muted">{ar ? "متوسط التفوّق" : "Average edge"}</span><b className="ltr">{pct(o.avg_edge, true)}</b>
