@@ -151,3 +151,41 @@ def test_backtest_reserves_its_estimate(monkeypatch):
     db.set_setting("monthly_cap_usd", "100")
     B.reserve_extra(12.5, "backtest")
     assert budget.spent()["spent"] >= 12.5
+
+
+# ---------------------------------------------------------------- Stop while a voice line / the verdict is being made
+def test_stop_does_not_wait_for_a_voice_call():
+    import asyncio
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from veyro import runner
+    bus = runner.Bus(asyncio.new_event_loop())
+    cancel = threading.Event()
+    em = runner.Emitter(bus, cancel)
+    pool = ThreadPoolExecutor(1)
+    em.put(pool.submit(lambda: (time.sleep(3), [{"type": "agent_message"}])[1]))   # a slow voice call
+    time.sleep(0.2)
+    cancel.set()
+    t0 = time.time()
+    em.put({"type": "end", "status": "cancelled"})
+    em.close()
+    assert time.time() - t0 < 1.0
+    assert [e["type"] for e in bus.events] == ["end"]
+    pool.shutdown(wait=False)
+
+
+def test_stop_after_verdict_recorded_still_shows_the_verdict():
+    import asyncio
+    import threading
+    from concurrent.futures import Future
+    from veyro import runner
+    bus = runner.Bus(asyncio.new_event_loop())
+    cancel = threading.Event()
+    em = runner.Emitter(bus, cancel)
+    f: Future = Future()
+    f.set_result([{"type": "verdict", "rating": "Buy"}, {"type": "end", "status": "done"}])
+    cancel.set()
+    em.put(f)
+    em.close()
+    assert [e["type"] for e in bus.events] == ["verdict", "end"]

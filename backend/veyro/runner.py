@@ -17,6 +17,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import datetime
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
@@ -314,9 +315,19 @@ class Emitter:
                 return
             try:
                 if isinstance(item, Future):
+                    # Wait in short steps so Stop is honoured even while a voice or verdict call is in flight
+                    # (the call itself finishes in its worker; its line is simply never shown).
+                    while not item.done() and not (self.cancel is not None and self.cancel.is_set()):
+                        try:
+                            item.result(timeout=0.2)
+                        except FutureTimeout:
+                            pass
                     if self.cancel is not None and self.cancel.is_set():
-                        item.cancel()
-                        continue   # stopped: don't wait for (or show) lines still being voiced
+                        evs = item.result() if item.done() and not item.cancelled() and not item.exception() else None
+                        if not (isinstance(evs, list) and any(e.get("type") == "verdict" for e in evs)):
+                            item.cancel()
+                            continue   # stopped: don't wait for (or show) lines still being voiced
+                        # the verdict was already recorded before Stop landed: show it, so the UI matches History
                     evs = item.result()
                     for ev in (evs if isinstance(evs, list) else [evs]):
                         self.bus.publish(ev)
@@ -674,6 +685,8 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
     flush_risk()
     decision = final.get("final_trade_decision") or ""
     rating = ta.process_signal(decision) if decision else "REVIEW"
+    if cancel.is_set():
+        raise _Cancelled()   # a stopped run must not enter the framework's decision memory
     try:
         ta.record_decision(ticker, trade_date, {**init, **final})
     except Exception as e:  # noqa: BLE001
