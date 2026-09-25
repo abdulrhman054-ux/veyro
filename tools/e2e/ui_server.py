@@ -50,6 +50,15 @@ DIVS = {"KO": [("2026-03-01", 0.51), ("2026-06-01", 0.51)], "2222.SR": [("2026-0
         "7010.SR": [("2026-04-01", 1.0)]}
 market.dividends_or_none = lambda s: DIVS.get(s, [])
 market.dividends = lambda s: DIVS.get(s, [])
+# Yahoo's screener (blocked here): a Saudi answer for the region "sa" query, nothing for the rest
+from veyro.lazy import yf as _yf
+def _screen(query, **kw):
+    if isinstance(query, str):
+        raise ConnectionError("blocked in the sandbox")
+    return {"quotes": [{"symbol": "2280.SR", "quoteType": "EQUITY", "regularMarketPrice": 55.0, "regularMarketChangePercent": 2.1, "currency": "SAR", "shortName": "Almarai"},
+                       {"symbol": "7010.SR", "quoteType": "EQUITY", "regularMarketPrice": 42.0, "regularMarketChangePercent": 1.4, "currency": "SAR", "shortName": "stc"},
+                       {"symbol": "AAPL", "quoteType": "EQUITY", "regularMarketPrice": 210.0}]}
+_yf._load().screen = _screen
 # slow the fake model a little so animations/stop can be observed
 from tests import fake_llm
 _orig = fake_llm.FakeChat._generate

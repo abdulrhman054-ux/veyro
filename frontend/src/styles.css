@@ -742,3 +742,16 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
   .topbar { position: sticky; top: 0; z-index: 60; background: var(--page); padding-block: 8px; box-shadow: 0 6px 12px -10px rgba(40,28,20,.35); }
   .report-nav { top: var(--topbar-h, 0px); }
 }
+
+/* Wide screens: fit the header on one row (brand, menu, tools), so the sticky header stays slim. */
+@media (min-width: 1260px) {
+  .topbar { flex-wrap: nowrap; gap: 10px; }
+  .brand small { display: none; }
+  .brand b { font-size: 24px; }
+  .nav { flex-shrink: 0; }
+  .tab { padding: 0 11px; font-size: 15px; height: 36px; }
+  .tools { flex-wrap: nowrap; gap: 6px; }
+  .tools .pill { height: 36px; min-width: 36px; padding: 0 10px; font-size: 14px; }
+  .tools .pill .pill-label { display: none; }
+  .tools .chip.mkt { font-size: 13px; white-space: nowrap; }
+}

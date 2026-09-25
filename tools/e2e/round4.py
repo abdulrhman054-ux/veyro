@@ -115,6 +115,19 @@ with sync_playwright() as p:
         advance_until(page, lambda: page.locator(".modal-bg").count() > 0, 300)
         return lines
 
+    # --- Saudi market scan
+    for _ in range(3):
+        if not page.locator(".modal-bg").count(): break
+        page.locator(".modal-bg button.primary").last.click(); page.wait_for_timeout(300)
+    page.locator("nav button", has_text="Office").click(); page.wait_for_timeout(400)
+    page.locator(".seg button").nth(3).click()
+    page.locator(".startbar select").first.select_option("sa_day_gainers")
+    page.locator(".startbar button", has_text="Show candidates").first.click()
+    page.wait_for_timeout(2500)
+    cands = page.locator(".card.cream .chip.pick").all_inner_texts()
+    check("Saudi scan: Tadawul candidates only, priced in riyals", len(cands) == 2 and all(".SR" in c and "SAR" in c for c in cands), " | ".join(c.replace("\n", " ") for c in cands))
+    page.screenshot(path=OUT + "r4_saudi_scan.png", full_page=True)
+
     us = value_run(["AAPL", "MSFT", "NVDA", "KO"], "us")
     check("value (US): each line shows P/E against its sector and the yield", any("P/E 30" in x and "its sector" in x for x in us)
           and any(x.startswith("KO") and "yield 1.5%" in x for x in us), " || ".join(us))

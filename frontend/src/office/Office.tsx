@@ -87,7 +87,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
     if (ok.length) setPicked((p) => [...new Set([...p, ...ok])].slice(0, maxBatch));
     return ok.length;
   };
-  const [screeners, setScreeners] = useState<Record<string, { ar: string; en: string }>>({});
+  const [screeners, setScreeners] = useState<Record<string, { ar: string; en: string; market?: string }>>({});
   const [preview, setPreview] = useState<Candidate[] | null>(null);
   const narrow = useNarrow();
   const shHidden = useShariaHidden(preview?.map((c) => c.symbol) ?? []);   // optional Sharia screen: "hide non-compliant"
@@ -142,7 +142,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
   // The office mood follows the stock under discussion, or the whole market (SPY) between sessions.
   const mood = useMemo(() => moodFrom(state.market ?? (sessionId ? null : spy)), [state.market, spy, sessionId]);
 
-  useEffect(() => { api.get<{ screeners: Record<string, { ar: string; en: string }> }>("/api/market/screeners").then((r) => setScreeners(r.screeners)).catch(() => {}); }, []);
+  useEffect(() => { api.get<{ screeners: Record<string, { ar: string; en: string; market?: string }> }>("/api/market/screeners").then((r) => setScreeners(r.screeners)).catch(() => {}); }, []);
 
   // A stopped run is over at once: Leo's "stopped" line may still be on screen, but it never holds the controls.
   const running = !!sessionId && (!state.ended || (state.status !== "cancelled" && (!!state.current || state.queue.length > 0)))
@@ -445,7 +445,11 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
             <label className="row" style={{ gap: 8 }}>
               <span style={{ fontWeight: 800 }}>{t.screener}</span>
               <select className="field" value={screener} onChange={(e) => setScreener(e.target.value)} disabled={running}>
-                {Object.entries(screeners).map(([k, v]) => <option key={k} value={k}>{v[lang]}</option>)}
+                {(["us", "sa"] as const).map((m) => (
+                  <optgroup key={m} label={m === "sa" ? (lang === "ar" ? "السوق السعودي" : "Saudi market") : (lang === "ar" ? "السوق الأمريكي" : "US market")}>
+                    {Object.entries(screeners).filter(([, v]) => (v.market ?? "us") === m).map(([k, v]) => <option key={k} value={k}>{v[lang]}</option>)}
+                  </optgroup>
+                ))}
               </select>
             </label>
             <label className="row" style={{ gap: 8 }}>
@@ -595,12 +599,12 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
         <div className="card cream" style={{ padding: 14 }}>
           {preview.length === 0 ? <span>{t.unavailable}</span> : (
             <div className="row" style={{ gap: 8 }}>
-              <span className="label">{t.candidatesFrom} Yahoo Finance · {fmtTime(preview[0].as_of, lang)} · {lang === "ar" ? "اختر اللي تبي تحلله" : "tick the ones to analyse"}</span>
+              <span className="label">{t.candidatesFrom} {preview[0].source?.startsWith("Veyro") ? (lang === "ar" ? "قائمة فيرو للشركات الكبيرة (مرشّح ياهو غير متاح)" : "Veyro's list of large companies (Yahoo's screener unavailable)") : "Yahoo Finance"} · {fmtTime(preview[0].as_of, lang)} · {lang === "ar" ? "اختر اللي تبي تحلله" : "tick the ones to analyse"}</span>
               {preview.filter((c) => !shHidden(c.symbol)).map((c) => (
                 <label key={c.symbol} className="chip mkt pick" title={c.name ?? ""} style={{ cursor: "pointer", opacity: chosen.has(c.symbol) ? 1 : 0.55 }}>
                   <input type="checkbox" checked={chosen.has(c.symbol)} onChange={() => setChosen((cs) => { const n = new Set(cs); if (n.has(c.symbol)) n.delete(c.symbol); else n.add(c.symbol); return n; })} />
                   <b className="pixel ltr">{c.symbol}</b>
-                  <span className="ltr">{c.price != null ? fmtUsd(c.price, lang) : t.unavailable}</span>
+                  <span className="ltr">{c.price != null ? money(c.price, c.currency ?? "USD", lang) : t.unavailable}</span>
                   {c.change_pct != null && <span className={`ltr ${c.change_pct >= 0 ? "pos" : "neg"}`}>{fmtPct(c.change_pct / 100, lang)}</span>}
                   <ShariaBadge symbol={c.symbol} />
                 </label>

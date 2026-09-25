@@ -23,7 +23,51 @@ SCREENERS = {  # ids from yfinance PREDEFINED_SCREENER_QUERIES (equities only)
     "undervalued_large_caps": {"ar": "شركات كبيرة بتقييم منخفض", "en": "Undervalued large caps"},
     "undervalued_growth_stocks": {"ar": "أسهم نمو بتقييم منخفض", "en": "Undervalued growth stocks"},
     "growth_technology_stocks": {"ar": "أسهم تقنية نامية", "en": "Growing tech stocks"},
+    # Saudi market (Tadawul): Yahoo's screener with region "sa" (a field value listed in yfinance's own
+    # EQUITY_SCREENER_EQ_MAP). No market-cap thresholds: their currency in the screener isn't documented.
+    "sa_most_actives": {"ar": "🇸🇦 الأكثر تداولاً اليوم (تداول)", "en": "🇸🇦 Most active today (Tadawul)", "market": "sa"},
+    "sa_day_gainers": {"ar": "🇸🇦 الأكثر ارتفاعاً اليوم (تداول)", "en": "🇸🇦 Top gainers today (Tadawul)", "market": "sa"},
+    "sa_day_losers": {"ar": "🇸🇦 الأكثر انخفاضاً اليوم (تداول)", "en": "🇸🇦 Top losers today (Tadawul)", "market": "sa"},
+    "sa_low_pe": {"ar": "🇸🇦 مكرر ربحية منخفض (تداول)", "en": "🇸🇦 Low P/E (Tadawul)", "market": "sa"},
 }
+
+
+def screener_market(screener: str) -> str:
+    return SCREENERS.get(screener, {}).get("market", "us")
+
+
+def _sa_query(screener: str):
+    """(query, sort field, ascending) for the Saudi screeners."""
+    from yfinance import EquityQuery as Q
+    region = Q("eq", ["region", "sa"])
+    liquid = Q("gt", ["dayvolume", 100000])   # shares traded today: keeps out names that barely traded
+    if screener == "sa_most_actives":
+        return Q("and", [region, liquid]), "dayvolume", False
+    if screener == "sa_day_gainers":
+        return Q("and", [region, liquid, Q("gt", ["percentchange", 0])]), "percentchange", False
+    if screener == "sa_day_losers":
+        return Q("and", [region, liquid, Q("lt", ["percentchange", 0])]), "percentchange", True
+    return Q("and", [region, Q("btwn", ["peratio.lasttwelvemonths", 0, 15])]), "eodvolume", False
+
+
+def _sa_fallback(screener: str) -> list[dict]:
+    """Yahoo's screener didn't answer: today's movers among Veyro's own list of large Saudi companies, from
+    their quotes (price vs previous close). Only for gainers/losers; the rest needs the screener."""
+    if screener not in ("sa_day_gainers", "sa_day_losers"):
+        return []
+    from concurrent.futures import ThreadPoolExecutor
+    from .beginner import UNIVERSE
+    syms = list(dict.fromkeys([x[0] for x in UNIVERSE["sa"]] + [s for s, _, _ in ALIASES if s.endswith(".SR")]))
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        pxs = dict(zip(syms, ex.map(last_price, syms)))
+    rows = []
+    for s, px in pxs.items():
+        if px and px.get("prev_close"):
+            ch = (px["price"] / px["prev_close"] - 1) * 100
+            if (ch > 0) if screener == "sa_day_gainers" else (ch < 0):
+                rows.append({"symbol": s, "regularMarketPrice": px["price"], "regularMarketChangePercent": ch,
+                             "quoteType": "EQUITY", "currency": px.get("currency") or "SAR", "_fallback": True})
+    return sorted(rows, key=lambda r: r["regularMarketChangePercent"], reverse=screener == "sa_day_gainers")
 
 
 class MarketDataUnavailable(Exception):
@@ -192,31 +236,50 @@ def market_status() -> dict | None:
 
 
 def screen(screener: str, count: int, max_price: float | None = None) -> list[dict]:
-    """Real screener candidates. With max_price (the owner's budget), only stocks where at least one whole
-    share fits the budget are suggested."""
+    """Real screener candidates. With max_price (the owner's budget, in the screener market's currency: USD for
+    the US lists, SAR for the Saudi ones), only stocks where at least one whole share fits are suggested."""
     if screener not in SCREENERS:
         raise ValueError("unknown screener")
+    mkt = screener_market(screener)
+    size = min(250, max(count * (8 if max_price else 3), 10))
+    fallback = False
     try:
-        r = yf.screen(screener, count=min(250, max(count * (8 if max_price else 3), 10)))
+        if mkt == "sa":
+            q, field, asc = _sa_query(screener)
+            quotes = yf.screen(q, size=size, sortField=field, sortAsc=asc).get("quotes", [])
+        else:
+            quotes = yf.screen(screener, count=size).get("quotes", [])
     except Exception as e:  # noqa: BLE001
-        raise MarketDataUnavailable(type(e).__name__) from e
+        if mkt != "sa":
+            raise MarketDataUnavailable(type(e).__name__) from e
+        log.info("Saudi screener unavailable (%s): using Veyro's list", type(e).__name__)
+        quotes = []
+    if mkt == "sa" and not quotes:
+        quotes, fallback = _sa_fallback(screener), True
     out = []
     as_of = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    for qt in r.get("quotes", []):
+    for qt in quotes:
         sym = qt.get("symbol")
-        if not sym or qt.get("quoteType") != "EQUITY" or "." in sym:
-            continue  # US common stock only
+        if not sym or qt.get("quoteType") != "EQUITY":
+            continue
+        if (mkt == "sa") != sym.endswith(".SR") or (mkt == "us" and "." in sym):
+            continue  # this market's common stock only
         px = qt.get("regularMarketPrice")
         if max_price and (px is None or px > max_price):
             continue  # can't buy even one share with this budget
-        out.append({"symbol": sym, "name": qt.get("shortName") or qt.get("longName"),
-                    "price": qt.get("regularMarketPrice"), "change_pct": qt.get("regularMarketChangePercent"),
-                    "volume": qt.get("regularMarketVolume"), "as_of": as_of, "source": SOURCE})
+        out.append({"symbol": sym, "name": qt.get("shortName") or qt.get("longName") or _alias_name(sym),
+                    "price": px, "currency": qt.get("currency") or ("SAR" if mkt == "sa" else "USD"),
+                    "change_pct": qt.get("regularMarketChangePercent"), "volume": qt.get("regularMarketVolume"),
+                    "as_of": as_of, "source": "Veyro list (Yahoo screener unavailable)" if fallback else SOURCE})
         if len(out) >= count:
             break
     if not out:
         raise MarketDataUnavailable("empty")
     return out
+
+
+def _alias_name(sym: str) -> str | None:
+    return next((n for s, n, _ in ALIASES if s == sym), None)
 
 
 # ---------------------------------------------------------------- ticker search by name

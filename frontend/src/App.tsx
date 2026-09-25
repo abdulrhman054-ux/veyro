@@ -128,7 +128,7 @@ function Shell() {
           <button className="pill btn" onClick={() => set({ lang: prefs.lang === "ar" ? "en" : "ar" })} aria-label={t.langAria} lang={prefs.lang === "ar" ? "en" : "ar"}>{t.langBtn}</button>
           <button className="pill btn" onClick={() => set({ theme: night ? "day" : "night" })} aria-label={t.themeAria}>{night ? SUN : MOON}</button>
           <button className="pill btn" onClick={() => { unlockAudio(); set({ sound: !prefs.sound }); }} aria-label={t.soundAria} aria-pressed={prefs.sound} style={{ opacity: prefs.sound ? 1 : 0.6 }}>
-            {SPEAKER}<span>{prefs.sound ? t.sound : t.muted}</span>
+            {SPEAKER}<span className="pill-label">{prefs.sound ? t.sound : t.muted}</span>
           </button>
         </div>
       </header>

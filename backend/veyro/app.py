@@ -364,7 +364,7 @@ def run_screen(screener: str, count: int = 5, budget: float | None = None, curre
         raise HTTPException(400, "unknown_screener")
     try:
         return {"available": True, "candidates": market.screen(screener, max(1, min(count, MAX_SCREEN)),
-                                                               _max_price(_budget(budget, currency)))}
+                                                               _max_price(_budget(budget, currency), screener))}
     except market.MarketDataUnavailable:
         return {"available": False, "candidates": []}
 
@@ -395,12 +395,14 @@ def _cap_reached():
     return None
 
 
-def _max_price(b: dict | None) -> float | None:
-    """The budget in USD (screeners list US stocks), so only affordable candidates are suggested."""
+def _max_price(b: dict | None, screener: str | None = None) -> float | None:
+    """The budget in the screener market's currency (USD for the US lists, SAR for the Saudi ones), so only
+    affordable candidates are suggested."""
     if not b:
         return None
     from .allocation import fx
-    rate = fx(b["currency"], "USD")
+    cur = "SAR" if screener and market.screener_market(screener) == "sa" else "USD"
+    rate = fx(b["currency"], cur)
     return b["amount"] * rate if rate else None
 
 
@@ -588,7 +590,7 @@ def create_scan(s: ScanIn):
         if s.screener not in market.SCREENERS:
             raise HTTPException(400, "unknown_screener")
         try:
-            source = market.screen(s.screener, max(1, min(s.count, MAX_SCREEN)), _max_price(_budget(s.budget, s.budget_currency)))
+            source = market.screen(s.screener, max(1, min(s.count, MAX_SCREEN)), _max_price(_budget(s.budget, s.budget_currency), s.screener))
         except market.MarketDataUnavailable:
             raise HTTPException(502, "screener_unavailable") from None
         tickers = [c["symbol"] for c in source]

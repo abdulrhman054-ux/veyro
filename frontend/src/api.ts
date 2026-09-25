@@ -77,7 +77,7 @@ export type VEvent =
   | { type: "scan_result"; index: number; ticker: string; session_id: string; status: string; rating: string | null }
   | { type: "scan_ranked"; ranking: { ticker: string; rating: string | null; session_id: string; status: string }[] };
 
-export type Candidate = { symbol: string; name: string | null; price: number | null; change_pct: number | null; volume: number | null; as_of: string; source: string };
+export type Candidate = { symbol: string; name: string | null; price: number | null; currency?: string; change_pct: number | null; volume: number | null; as_of: string; source: string };
 
 export type Turn = {
   id: number; seq: number; character: string; node: string; detail_en: string;
