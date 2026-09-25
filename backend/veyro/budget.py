@@ -32,16 +32,17 @@ def spent() -> dict:
     known, unpriced, reserved = 0.0, 0, 0.0
     for r in rows:
         if r["cost_usd"] is not None:
-            known += r["cost_usd"]
+            used = float(r["cost_usd"])
         else:
             try:
-                known += float((json.loads(r["usage_json"] or "{}") or {}).get("cost_partial") or 0)
+                used = float((json.loads(r["usage_json"] or "{}") or {}).get("cost_partial") or 0)
             except (TypeError, ValueError):
-                pass
+                used = 0.0
             if r["status"] != "running":
                 unpriced += 1
-        if r["status"] == "running" and not r["usage_json"]:
-            reserved += _session_high(r["provider"], r["quick_model"], r["deep_model"])
+        known += used
+        if r["status"] == "running":   # usage is written as it arrives: hold the rest of the run's high estimate
+            reserved += max(0.0, _session_high(r["provider"], r["quick_model"], r["deep_model"]) - used)
     ex = [x for x in (db.get_setting("spend_extra") or []) if x.get("month") == m]
     extra = sum(float(x.get("usd") or 0) for x in ex)
     return {"month": m, "spent": round(known + extra, 4), "reserved": round(reserved, 4), "sessions": len(rows),
@@ -105,9 +106,17 @@ def ledger_tracker(what: str):
     return Ledger()
 
 
-def blocked() -> bool:
+def next_run_high() -> float:
+    """The high estimate of one more analysis with the current models (0 when their price isn't known)."""
+    from .runner import settings_models
+    return _session_high(*settings_models())
+
+
+def blocked(upcoming: float = 0.0) -> bool:
+    """True when this month's cap is reached, or when `upcoming` (a run about to start) would go past it."""
     c = cap()
     if not c:
         return False
     s = spent()
-    return s["spent"] + s["reserved"] >= c
+    used = s["spent"] + s["reserved"]
+    return used + upcoming > c if upcoming > 0 else used >= c

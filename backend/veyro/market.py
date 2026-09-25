@@ -193,6 +193,38 @@ def dividends(ticker: str) -> list[tuple[str, float]]:
     return dividends_or_none(ticker) or []
 
 
+def splits(ticker: str) -> list[tuple[str, float]]:
+    """Stock splits and bonus-share issues as (date, ratio), e.g. 4.0 for a 4-for-1 (Tadawul bonus shares appear here).
+    [] when none or when Yahoo can't be asked. Cached for a day; a failure for 10 minutes."""
+    key = f"split:{ticker}"
+    with _clock:
+        hit = _cache.get(key)
+    if hit and time.time() - hit[0] < (86400 if hit[1] is not None else 600):
+        return hit[1] or []
+    try:
+        d = yf.Ticker(ticker).splits
+        val = [(i.strftime("%Y-%m-%d"), float(v)) for i, v in d.items() if v == v and v > 0] if d is not None else []
+    except Exception as e:  # noqa: BLE001
+        log.info("splits unavailable for %s: %s", ticker, type(e).__name__)
+        val = None
+    with _clock:
+        _cache[key] = (time.time(), val)
+    return val or []
+
+
+def split_factor(ticker: str | None, after: str) -> float:
+    """How many shares one share held on `after` has become today. Yahoo's prices and dividends are split-adjusted,
+    while prices Veyro recorded (price at the verdict, paper entry) are the real prices of the day, so a return
+    has to count the extra shares."""
+    if not ticker:
+        return 1.0
+    f = 1.0
+    for d, r in splits(ticker):
+        if d > after[:10]:
+            f *= r
+    return f
+
+
 def sector(ticker: str) -> str | None:
     """Yahoo's sector name for a company (for the plan's sector cap), cached for a day. None when unknown."""
     def fetch():

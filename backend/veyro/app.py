@@ -387,10 +387,11 @@ def _budget(amount: float | None, currency: str) -> dict | None:
     return {"amount": round(float(amount), 2), "currency": currency}
 
 
-def _cap_reached():
-    """Refuse new paid analyses once this month's cap is reached (demo runs are free and always allowed)."""
+def _cap_reached(run: bool = True):
+    """Refuse new paid analyses once this month's cap is reached, counting the run about to start at its high
+    estimate (demo runs are free and always allowed). run=False: the caller reserves its own estimate (backtest)."""
     from . import budget
-    if budget.blocked():
+    if budget.blocked(budget.next_run_high() if run else 0.0):
         return JSONResponse({"ok": False, "code": "budget_cap", "spend": budget.spent()})
     return None
 
@@ -887,7 +888,7 @@ def start_backtest(b: BacktestIn):
     key, _ = llm_key(provider)
     if not key:
         return JSONResponse({"ok": False, "code": "no_key"})
-    if r := _cap_reached():
+    if r := _cap_reached(run=False):
         return r
     if PROVIDERS[provider]["env"]:
         import os
@@ -898,7 +899,9 @@ def start_backtest(b: BacktestIn):
     from . import budget
     # The framework's backtest takes no usage callback, so its tokens can't be counted: its high estimate is
     # recorded against this month's cap instead (over-counting is safer than a backtest that costs "$0").
-    budget.reserve_extra(job["estimate"].get("high") or 0, f"backtest {job['id']} ({cells} cells)")
+    # A model with no known price has no estimate: the backtest is counted as unpriced, not as $0.
+    high = job["estimate"].get("high")
+    budget.record_extra(float(high) if high is not None else None, f"backtest {job['id']} ({cells} cells)")
 
     def work():
         from pathlib import Path

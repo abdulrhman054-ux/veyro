@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { SpriteSvg } from "../art/Sprite";
 import { RATING, fmtNum } from "../i18n";
 import { usePrefs } from "../prefs";
@@ -9,7 +9,7 @@ type Pos = { id: number; ticker: string; shares: number; entry_price: number; cu
   closed_at: string | null; price_now: number | null; value: number | null; cost: number; ret: number | null; bench: string | null;
   dividends?: number; fees?: number;
   bench_ret: number | null; alpha: number | null };
-type View = { positions: Pos[]; totals: { currency: string; cost: number; value: number; ret: number | null; bench_ret: number | null }[];
+type View = { positions: Pos[]; totals: { currency: string; cost: number; value: number; ret: number | null; bench_ret: number | null; bench_price_only?: boolean }[];
   combined_usd?: { currency: string; cost: number; value: number; ret: number | null } | null; fees_set?: boolean };
 
 const pct = (v: number | null | undefined) => (v == null ? "—" : `${v >= 0 ? "+" : "−"}${fmtNum(Math.abs(v * 100), "en", { maximumFractionDigits: 2 })}%`);
@@ -23,11 +23,12 @@ export function PaperPortfolio({ active = true }: { active?: boolean }) {
   useEffect(() => { if (active) api.get<View>("/api/paper").then(setV).catch(() => {}); }, [active]);
   if (!v) return null;
   const open = v.positions.filter((p) => !p.closed_at), closed = v.positions.filter((p) => p.closed_at);
-  const act = (url: string, method: "post" | "del") => (method === "post" ? api.post<View | { ok: false; code: string }>(url) : api.del<View>(url))
-    .then((r) => {
-      if ("ok" in r && r.ok === false) { setNote(ar ? "ما فيه سعر حالي للسهم، فما قفلنا المركز (ما نسجّل سعر بيع مخترع). جرّب بعد شوي." : "No current price for this stock, so the position stays open (we never book a made-up exit price). Try again shortly."); return; }
-      setNote(null); setV(r as View);
-    }).catch(() => {});
+  // A refusal ({ok:false, code}) arrives as an ApiError from api.ts.
+  const act = (url: string, method: "post" | "del") => (method === "post" ? api.post<View>(url) : api.del<View>(url))
+    .then((r) => { setNote(null); setV(r); })
+    .catch((e) => setNote(e instanceof ApiError && e.code === "no_price"
+      ? (ar ? "ما فيه سعر حالي للسهم، فما قفلنا المركز (ما نسجّل سعر بيع مخترع). جرّب بعد شوي." : "No current price for this stock, so the position stays open (we never book a made-up exit price). Try again shortly.")
+      : (ar ? "ما تم. جرّب مرة ثانية." : "That didn't go through. Try again.")));
   return (
     <section className="card stack" style={{ gap: 12 }} aria-labelledby="paper-h">
       <div className="row" style={{ gap: 10 }}><SpriteSvg name="Bruno" px={2} />
@@ -44,7 +45,8 @@ export function PaperPortfolio({ active = true }: { active?: boolean }) {
               <span className="muted">{ar ? "القيمة الآن" : "Value now"}</span>
               <b className="ltr">{money(t.value, t.currency, lang)}</b>
               <span className={`ltr ${(t.ret ?? 0) >= 0 ? "pos" : "neg"}`}>{pct(t.ret)}</span>
-              <span className="muted" style={{ fontSize: 12 }}>{ar ? "المؤشر بنفس الفترة" : "Index, same period"}: <span className="ltr">{pct(t.bench_ret)}</span></span>
+              <span className="muted" style={{ fontSize: 12 }}>{ar ? "المؤشر بنفس الفترة" : "Index, same period"}: <span className="ltr">{pct(t.bench_ret)}</span>
+                {t.bench_price_only && (ar ? " (المؤشر بدون توزيعات، وعائدك يشملها؛ الفرق في الجدول بدونها)" : " (the index has no dividends and your return includes them; the table's lead leaves them out)")}</span>
             </div>
           ))}
           {v.combined_usd && <div className="paper-total" data-combined>

@@ -154,7 +154,8 @@ def paper_close(pid: int) -> dict:
         # the index is frozen at the same moment as the stock, so a closed position's alpha stops moving
         with db.tx() as c:
             c.execute("UPDATE paper SET closed_at=?, exit_price=?, bench_exit=?, fee_out=? WHERE id=?",
-                      (db.now(), px["price"], b["price"] if b else None, _fee(row["ticker"], px["price"] * row["shares"]), pid))
+                      (db.now(), px["price"], b["price"] if b else None,
+                       _fee(row["ticker"], px["price"] * row["shares"] * market.split_factor(row["ticker"], row["opened_at"])), pid))
     return paper_view()
 
 
@@ -176,18 +177,30 @@ def paper_view() -> dict:
     for r in rows:
         now = r["exit_price"] if r["closed_at"] else ((market.last_price(r["ticker"]) or {}).get("price"))
         bnow = r.get("bench_exit") if r["closed_at"] else ((market.last_price(r["bench"]) or {}).get("price") if r["bench"] else None)
+        # Splits and bonus shares since the purchase: Yahoo's current price and its dividend history are per today's
+        # share, so the holding counts as that many more shares (the recorded entry and exit prices are real ones).
+        f = market.split_factor(r["ticker"], r["opened_at"])
+        held = r["shares"] * f
+        if not r["closed_at"]:
+            r["shares_now"] = round(held, 6) if f != 1.0 else None
         fee_in = r.get("fee_in") or 0.0
-        fee_out = (r.get("fee_out") or 0.0) if r["closed_at"] else (_fee(r["ticker"], now * r["shares"]) if now else 0.0)
-        div = _divs(r["ticker"], r["opened_at"], r["closed_at"]) * r["shares"]
+        fee_out = (r.get("fee_out") or 0.0) if r["closed_at"] else (_fee(r["ticker"], now * held) if now else 0.0)
+        div = _divs(r["ticker"], r["opened_at"], r["closed_at"]) * held
         r["price_now"] = now
         r["dividends"] = round(div, 4)
         r["fees"] = round(fee_in + fee_out, 4)
         r["cost"] = r["entry_price"] * r["shares"] + fee_in
-        r["value"] = now * r["shares"] - fee_out + div if now else None
+        at_exit = r["shares"] * f / market.split_factor(r["ticker"], r["closed_at"]) if r["closed_at"] else held   # shares on the sale day
+        r["value"] = now * at_exit - fee_out + div if now else None
         r["ret"] = r["value"] / r["cost"] - 1 if r["value"] is not None and r["cost"] else None
         bdiv = _divs(r["bench"], r["opened_at"], r["closed_at"]) if r["bench"] and not r["bench"].startswith("^") else 0.0
         r["bench_ret"] = (bnow + bdiv) / r["bench_entry"] - 1 if bnow and r["bench_entry"] else None
-        r["alpha"] = r["ret"] - r["bench_ret"] if r["ret"] is not None and r["bench_ret"] is not None else None
+        # A price index (^TASI.SR, ^GSPC) has no dividends, so it is compared with the stock's price return only;
+        # counting the stock's dividends against it overstated the lead.
+        price_only = bool(r["bench"] and r["bench"].startswith("^"))
+        r["bench_price_only"] = price_only
+        vs = (r["value"] - div) / r["cost"] - 1 if price_only and r["value"] is not None and r["cost"] else r["ret"]
+        r["alpha"] = vs - r["bench_ret"] if vs is not None and r["bench_ret"] is not None else None
         cur = r["currency"] or "USD"
         t = totals.setdefault(cur, {"currency": cur, "cost": 0.0, "value": 0.0, "bench_weighted": 0.0, "bench_cost": 0.0, "known": True,
                                     "fees": 0.0, "dividends": 0.0})
@@ -198,6 +211,8 @@ def paper_view() -> dict:
             t["known"] = False
         else:
             t["value"] += r["value"]
+        if price_only:
+            t["bench_price_only"] = True
         if r["bench_ret"] is not None:
             t["bench_weighted"] += r["cost"] * r["bench_ret"]
             t["bench_cost"] += r["cost"]

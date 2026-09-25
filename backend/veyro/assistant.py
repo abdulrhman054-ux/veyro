@@ -417,12 +417,14 @@ def trust(rows: list[dict], today: date | None = None) -> dict:
         if not d or not r.get("price_at_verdict") or not r.get("spy_at_verdict") or not start_of(r):
             return None
         end = add_trading_days(start_of(r), n, r["ticker"])
-        if date.fromisoformat(end) > today:
+        if date.fromisoformat(end) >= today:   # that day's close isn't in yet: scoring now would use the day before
             return "waiting"
         bench = r.get("benchmark") or ((r.get("config") or {}).get("benchmark"))
         p1, b1 = market.close_on_or_before(r["ticker"], end), market.close_on_or_before(bench, end) if bench else None
         if not p1 or not b1:
             return None
+        # Yahoo's closes are split-adjusted; the recorded prices at the verdict are not.
+        p1, b1 = p1 * market.split_factor(r["ticker"], start_of(r)), b1 * market.split_factor(bench, start_of(r))
         ex = (p1 / r["price_at_verdict"] - 1) - (b1 / r["spy_at_verdict"] - 1)
         return {"hit": ex * d > 0, "excess": ex, "signed": ex * d}
 

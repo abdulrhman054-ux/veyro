@@ -38,8 +38,14 @@ function flush() {
   for (let i = 0; i < syms.length; i += 40) {
     const chunk = syms.slice(i, i + 40);
     api.post<{ results: Record<string, ShariaResult> }>("/api/sharia/screen", { symbols: chunk, method })
-      .then((r) => { for (const [s, v] of Object.entries(r.results)) results.set(`${method}:${s}`, v); emit(); })
-      .catch(() => { /* badge stays "checking"; the next request retries */ });
+      .then((r) => {
+        for (const [s, v] of Object.entries(r.results)) results.set(`${method}:${s}`, v);
+        // A symbol the server didn't answer for (e.g. not a valid ticker) is "unknown", never left on "checking".
+        for (const s of chunk) if (!results.has(`${method}:${s}`))
+          results.set(`${method}:${s}`, { symbol: s, method, status: "unknown", reasons: [{ code: "no_data" }], ratios: {}, data_date: null, fetched_at: null, purification: null, source: "" });
+        emit();
+      })
+      .catch(() => { window.setTimeout(() => { if (conf.method === method) request(chunk); }, 30_000); });   // retry once the server is back
   }
 }
 
@@ -101,6 +107,7 @@ export function reasonText(r: ShariaReason, lang: "ar" | "en", method: string): 
     case "stale": return ar ? `آخر ميزانية قديمة (${r.value})، ما نحكم عليها` : `The latest balance sheet is too old (${r.value}) to judge`;
     case "no_data": return ar ? "ما قدرنا نجيب البيانات المالية" : "Couldn't get the company's financial data";
     case "not_equity": return ar ? "مو سهم شركة (صندوق أو عملة أو مؤشر): ما يُفحص هنا" : "Not a company share (fund, crypto or index): not screened here";
+    case "takaful": return ar ? "شركة تأمين تعاوني (تكافل): الحكم لهيئتها الشرعية، والبيانات المجانية ما توضحه" : "Cooperative (takaful) insurer: its own Sharia board decides, and free data doesn't show that";
     case "islamic_finance": return ar ? "مصرف إسلامي: فحوص الفائدة ما تنطبق على البنوك، والحكم لهيئته الشرعية" : "Islamic bank: interest screens don't apply to banks; its own Sharia board certifies it";
     case "ambiguous_industry": return ar ? `النشاط (${r.industry}) يجمع أعمال مباحة وغير مباحة، فما نقدر نحكم آلياً` : `The industry (${r.industry}) mixes permissible and non-permissible businesses, so an automated screen can't tell`;
     case "activity_review": return ar ? `وصف الشركة يذكر ${ACT[String(r.value)]?.ar ?? r.value}، يحتاج مراجعة` : `The company description mentions ${ACT[String(r.value)]?.en ?? r.value}; needs a closer look`;

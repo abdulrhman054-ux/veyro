@@ -38,9 +38,12 @@ RATING_ORDER = ["Buy", "Overweight", "Hold", "Underweight", "Sell"]
 def price_for(model: str | None) -> tuple[float, float] | None:
     if not model:
         return None
-    custom = (db.get_setting("custom_prices") or {}).get(model)   # the owner's own entry for a model with no known price
-    if custom:
-        return (float(custom[0]), float(custom[1]))
+    # The owner's own entry for a model with no known price. Providers often answer with a dated or suffixed name
+    # ("my-model-2026-01-15" for "my-model"), so the same prefix rule as the built-in table applies.
+    custom = db.get_setting("custom_prices") or {}
+    for k in sorted(custom, key=len, reverse=True):
+        if (model == k or model.startswith(k + "-") or model.startswith(k + "@")) and custom[k]:
+            return (float(custom[k][0]), float(custom[k][1]))
     # Longest prefix wins, so "claude-opus-5-5" is never priced as "claude-opus-5".
     for k in sorted(PRICING, key=len, reverse=True):
         if model == k or model.startswith(k + "-") or model.startswith(k + "@"):
@@ -68,9 +71,10 @@ def estimate(provider: str, quick: str, deep: str, sessions: int = 1, team: dict
 class UsageTracker(BaseCallbackHandler):
     """Collects token usage per model from every LLM call (framework + voice layer)."""
 
-    def __init__(self):
+    def __init__(self, sid: str | None = None):
         self.lock = threading.Lock()
         self.by_model: dict[str, dict[str, int]] = {}
+        self.sid = sid   # a session's tracker writes its cost to the database as each reply lands
 
     def on_llm_end(self, response, **kwargs):  # noqa: ANN001
         for gens in response.generations:
@@ -84,6 +88,17 @@ class UsageTracker(BaseCallbackHandler):
                     d["input"] += int(um.get("input_tokens", 0) or 0)
                     d["output"] += int(um.get("output_tokens", 0) or 0)
                     d["calls"] += 1
+        if self.sid:
+            self.persist()
+
+    def persist(self) -> None:
+        """Write what has been spent so far. A run cut off by closing the app, and model calls that finish after Stop,
+        still count against the monthly cap (they used to be written only when the run ended normally)."""
+        u = self.summary()
+        try:
+            db.update_session(self.sid, usage_json=json.dumps(u), cost_usd=u["cost_usd"])
+        except Exception as e:  # noqa: BLE001 - never break a model call over bookkeeping
+            log.warning("could not record usage for %s: %s", self.sid, scrub(repr(e)))
 
     def summary(self) -> dict:
         with self.lock:
@@ -571,7 +586,7 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                 "data_vendors": __import__("veyro.datasources", fromlist=["x"]).framework_vendors(DEFAULT_CONFIG["data_vendors"]),
                 "results_dir": str(TA_HOME / "logs"), "data_cache_dir": str(TA_HOME / "cache"),
                 "memory_log_path": str(TA_HOME / "memory" / "trading_memory.md")})
-    tracker = UsageTracker()
+    tracker = UsageTracker(sid)
     TRACKERS[sid] = tracker
     stop_point()
     ta = TradingAgentsGraph(selected_analysts=tuple(analysts), config=cfg, callbacks=[tracker])
@@ -885,8 +900,8 @@ DEMO_LINES = {
     "Bruno": ("[تجريبي] وأنا أدافع عن سيناريو الهبوط وأطلع المخاطر اللي ممكن تفوتكم، غرر…",
               "[Demo] And I argue the downside and dig out the risks you might miss, grr…"),
     "Leo": ("[تجريبي] أوزن كلام الفريق كله قبل القرار.", "[Demo] I weigh the whole team before deciding."),
-    "Tank": ("[تجريبي] فريق المخاطر يراجع حجم الدخول ووقف الخسارة قبل أي قرار. على مهلك… بثبات.",
-             "[Demo] The risk team checks position size and stop-loss before any call. slow and steady."),
+    "Tank": ("[تجريبي] فريق المخاطر يقول: خذ حذرك، المخاطر عالية والتذبذب كبير. حدّد حجم الدخول ووقف الخسارة قبل أي قرار. على مهلك… بثبات.",
+             "[Demo] The risk team says: take care, the risk is high and so is the volatility. Set position size and stop-loss before any call. slow and steady."),
 }
 DEMO_ORDER = [("Ollie", "Market Analyst"), ("Buzz", "Sentiment Analyst"), ("Pip", "News Analyst"),
               ("Benny", "Fundamentals Analyst"), ("Bolt", "Bull Researcher"), ("Bruno", "Bear Researcher"),
@@ -1011,7 +1026,8 @@ def start_session(loop: asyncio.AbstractEventLoop, ticker: str, lang: str, demo:
     prune()
     provider, quick, deep = settings_models()
     if not demo:
-        key = (ticker.upper(), trade_date or today_for(ticker), provider, quick, deep)
+        # The instrument's own symbol (BTCUSD and BTC-USD share one framework checkpoint, so they share one run).
+        key = (resolve_instrument(ticker)[0].upper(), trade_date or today_for(ticker), provider, quick, deep)
         with _run_lock:
             prev = RUN_KEYS.get(key)
             state = _key_busy(prev) if prev else None
@@ -1050,6 +1066,8 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
     bus = SCAN_BUSES[scan_id] = Bus(loop)
     stop = SCAN_CANCEL[scan_id] = threading.Event()
 
+    joined: set[str] = set()   # runs this scan follows but didn't start (the same analysis was already playing)
+
     def work():
         try:
             run()
@@ -1057,7 +1075,8 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
             # e.g. "database is locked": never leave the scan "running" with its viewers waiting forever
             log.error("scan %s failed: %s", scan_id, scrub(repr(e)))
             for sid in [e2["session_id"] for e2 in bus.events if e2["type"] == "scan_session"]:
-                cancel_session(sid)
+                if sid not in joined:
+                    cancel_session(sid)
             db.update_scan(scan_id, status="error")
             bus.publish(error_event(classify(e), lang, repr(e)))
             bus.publish({"type": "end", "status": "error"})
@@ -1070,7 +1089,7 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
                 break
             from . import budget as spend_cap, extras   # not "budget": that name is this scan's amount to invest
             old = extras.reusable(t) if reuse else None
-            if not old and not demo and spend_cap.blocked():
+            if not old and not demo and spend_cap.blocked(spend_cap.next_run_high()):
                 bus.publish({"type": "scan_capped", "index": i, "spend": spend_cap.spent()})
                 break   # this month's cap is reached: no more paid sessions
             if old:
@@ -1095,9 +1114,15 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
                     if stop.is_set():
                         break
                     raise StillStopping()
-                bus.publish({"type": "scan_session", "index": i, "ticker": t, "session_id": sid})
+                if (db.get_session(sid) or {}).get("scan_id") != scan_id:
+                    # Someone else's run of the same analysis: count it as this scan's result, and never stop it.
+                    joined.add(sid)
+                    db.set_setting(f"scan_extra:{scan_id}", (db.get_setting(f"scan_extra:{scan_id}") or []) + [sid])
+                bus.publish({"type": "scan_session", "index": i, "ticker": t, "session_id": sid, "joined": sid in joined})
             while not BUSES[sid].closed:
                 if stop.is_set():
+                    if sid in joined:
+                        break   # stop following it; the run itself belongs to whoever started it
                     cancel_session(sid)
                 time.sleep(0.3)
             s = db.get_session(sid)

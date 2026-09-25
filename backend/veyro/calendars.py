@@ -63,6 +63,12 @@ def is_open(m: str, now: datetime | None = None) -> dict:
     in_hours = info["open"] <= (now.hour, now.minute) < info["close"]
     c = _cal(m)
     known = c is not None and c.first_session.date() <= now.date() <= c.last_session.date()
+    if known and is_session(m, now.date()):
+        try:   # the calendar's own hours for that day: early closes (US 13:00 around holidays) and special sessions
+            d = now.date().isoformat()
+            in_hours = c.session_open(d).to_pydatetime() <= now < c.session_close(d).to_pydatetime()
+        except Exception:  # noqa: BLE001
+            pass
     return {"open": in_hours and is_session(m, now.date()), "holidays_known": bool(known)}
 
 

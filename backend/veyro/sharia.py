@@ -147,6 +147,10 @@ def evaluate(symbol: str, raw: dict | None, method: str = DEFAULT_METHOD, today:
     excluded = set(CORE) | m["extra"]
     if symbol.upper() in ISLAMIC_FINANCE:
         unknown.append({"code": "islamic_finance"})
+    elif symbol.upper().endswith(".SR") and ind.startswith("insurance") and ind != "insurance brokers":
+        # Saudi insurers must be cooperative (takaful) by law; whether one is Sharia-compliant is for its Sharia board,
+        # which free data doesn't show. Unknown, never "not compliant" on the industry name alone.
+        unknown.append({"code": "takaful"})
     elif INDUSTRY.get(ind) in excluded:
         fail.append({"code": "activity", "value": INDUSTRY[ind], "industry": raw.get("industry")})
     elif ind in AMBIGUOUS:
@@ -168,7 +172,7 @@ def evaluate(symbol: str, raw: dict | None, method: str = DEFAULT_METHOD, today:
             stale = (today - date.fromisoformat(bs_date[:10])).days > STALE_DAYS
         except ValueError:
             stale = True
-    fin_ok = not any(r["code"] in ("islamic_finance",) for r in unknown) and not (fail and fail[0]["value"] == "conventional_finance")
+    fin_ok = not any(r["code"] in ("islamic_finance", "takaful") for r in unknown) and not (fail and fail[0]["value"] == "conventional_finance")
     if fin_ok:
         if not bs_date:
             unknown.append({"code": "missing", "field": "balance_sheet"})

@@ -146,9 +146,11 @@ def plan(sessions: list[dict], amount: float, currency: str = "USD") -> dict:
         notes.append("one_share_over_cap")
     if len(picks) < 3:
         notes.append("few_picks")    # 40% cap per stock: the rest stays in cash
-    if not any((fee_cfg.get(market_of(r["ticker"])) or {}).get("set") for r in rows):
+    # Any market in the plan without the owner's fees: say so (fees for one market don't cover the other's rows).
+    missing = sorted({market_of(r["ticker"]) for r in rows if not (fee_cfg.get(market_of(r["ticker"])) or {}).get("set")})
+    if missing:
         notes.append("fees_not_set")
-    return {"amount": amount, "currency": currency, "rows": rows, "cash_left": round(amount - spent, 2),
+    return {"amount": amount, "currency": currency, "rows": rows, "fees_missing": missing, "cash_left": round(amount - spent, 2),
             "skipped": skipped, "notes": notes, "source": market.SOURCE, "sharia": shar,
             "caps": {"name": MAX_SHARE, "sector": MAX_SECTOR}, "correlated": _correlated([r["ticker"] for r in rows if r["shares"] > 0]),
             "fees_total": round(sum(r.get("fee") or 0 for r in rows), 2)}

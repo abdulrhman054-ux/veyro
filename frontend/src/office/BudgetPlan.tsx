@@ -13,7 +13,7 @@ export type PlanRow = { ticker: string; rating: string; conviction: string; sess
   fee?: number; sector?: string | null; vol?: number | null; risk_adj?: number };
 export type Plan = { amount: number; currency: string; rows: PlanRow[]; cash_left: number;
   skipped: { ticker: string; rating: string | null; session_id: string; status?: string; name?: Names; reason?: Reasons; sharia?: ShariaResult }[];
-  notes: string[]; source?: string; sharia?: { method: string; excluded: string[] } | null;
+  notes: string[]; fees_missing?: string[]; source?: string; sharia?: { method: string; excluded: string[] } | null;
   correlated?: { a: string; b: string; corr: number }[]; fees_total?: number; caps?: { name: number; sector: number } };
 
 export function money(v: number, cur: string, lang: "ar" | "en") {
@@ -145,9 +145,13 @@ function PlanWarnings({ plan, lang }: { plan: Plan; lang: "ar" | "en" }) {
   for (const c of plan.correlated ?? [])
     items.push(ar ? `${c.a} و${c.b} يتحركون مع بعض تقريباً (ارتباط ${c.corr}): التنويع بينهم أقل مما يبدو.`
       : `${c.a} and ${c.b} tend to move together (correlation ${c.corr}): less diversified than it looks.`);
-  if (plan.notes.includes("fees_not_set"))
-    items.push(ar ? "رسوم وسيطك مو مدخلة (الإعدادات ← رسوم الوسيط)، فالخطة ما تحسب العمولة. على المبالغ الصغيرة ممكن تفرق كثير."
-      : "Your broker's fees aren't entered (Settings → Broker fees), so the plan doesn't include commission. On small amounts it can matter a lot.");
+  if (plan.notes.includes("fees_not_set")) {
+    const miss = plan.fees_missing ?? [];
+    const only = miss.length === 1 && plan.rows.some((r) => (r.ticker.toUpperCase().endsWith(".SR") ? "sa" : "us") !== miss[0]);
+    const which = only ? (ar ? (miss[0] === "sa" ? " للسوق السعودي" : " للسوق الأمريكي") : (miss[0] === "sa" ? " for Saudi stocks" : " for US stocks")) : "";
+    items.push(ar ? `رسوم وسيطك مو مدخلة${which} (الإعدادات ← رسوم الوسيط)، فالخطة ما تحسب عمولتها. على المبالغ الصغيرة ممكن تفرق كثير.`
+      : `Your broker's fees aren't entered${which} (Settings → Broker fees), so the plan doesn't include that commission. On small amounts it can matter a lot.`);
+  }
   if (!items.length) return null;
   return <ul className="plan-warn" role="note" style={{ margin: 0, paddingInlineStart: 18, fontSize: 13, lineHeight: 1.7 }}>
     {items.map((x, i) => <li key={i}>⚠ {x}</li>)}</ul>;
