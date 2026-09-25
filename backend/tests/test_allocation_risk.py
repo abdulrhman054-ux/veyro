@@ -111,3 +111,18 @@ def test_fees_api_saves_and_validates():
     r = c.put("/api/fees", json={"market": "sa", "rate": 0.00155, "minimum": 0, "vat": 0.15})
     assert r.status_code == 200 and r.json()["broker_fees"]["sa"] == {"rate": 0.00155, "min": 0.0, "vat": 0.15, "set": True}
     assert c.put("/api/fees", json={"market": "xx", "rate": 0}).status_code == 400
+
+
+def test_beginner_index_funds_and_how_to_buy(monkeypatch):
+    from veyro import beginner, sharia
+    PX.update({"9412.SR": 11.0, "SPYM": 70.0, "VT": 120.0})
+    f = {x["symbol"]: x for x in beginner.index_funds(1000, "SAR", "both")}
+    assert f["9412.SR"]["units"] == 90 and f["SPYM"]["units"] == int(1000 // (70 * 3.75))
+    assert f["VT"]["cost"] <= 1000
+    sharia.save_settings(enabled=True)
+    try:
+        assert [x["symbol"] for x in beginner.index_funds(1000, "SAR", "both")] == ["9412.SR"]   # issuer-stated compliant only
+    finally:
+        sharia.save_settings(enabled=False)
+    h = beginner.how_to_buy("sa", "en")
+    assert set(h) == {"sa"} and any("T+2" in x for x in h["sa"]) and any("limit order" in x for x in h["sa"])

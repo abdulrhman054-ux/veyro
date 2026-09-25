@@ -53,6 +53,41 @@ UNIVERSE = {
 }
 
 
+# The simplest option for a beginner: a broad index fund (ETF). Shown next to the single-stock picks, needs no paid
+# analysis. Symbols checked 2026-09-25: 9412 = Albilad MSCI Saudi Equity ETF (saudiexchange.sa ETF profile; the issuer
+# states it follows its Sharia committee's standards), SPYM = State Street SPDR Portfolio S&P 500 ETF (renamed from
+# SPLG on 31 Oct 2025, ssga.com / OCC memo 57498), VT = Vanguard Total World Stock ETF.
+# (symbol, English name, Arabic name, sector, what it holds, issuer says Sharia-compliant)
+ETFS = {
+    "sa": [("9412.SR", "Albilad MSCI Saudi Equity ETF", "صندوق البلاد إم إس سي آي للأسهم السعودية", "index",
+            {"en": "Hundreds of Sharia-compliant Saudi companies of every size, in one unit.",
+             "ar": "مئات الشركات السعودية المتوافقة مع الشريعة بكل الأحجام، في وحدة وحدة."}, True)],
+    "us": [("SPYM", "SPDR Portfolio S&P 500 ETF", "صندوق إس بي دي آر للمؤشر S&P 500", "index",
+            {"en": "The 500 largest US companies in one low-cost unit.", "ar": "أكبر 500 شركة أمريكية في وحدة وحدة منخفضة التكلفة."}, False),
+           ("VT", "Vanguard Total World Stock ETF", "صندوق فانغارد لأسهم العالم", "index",
+            {"en": "Thousands of companies across the whole world in one unit.", "ar": "آلاف الشركات من كل العالم في وحدة وحدة."}, False)],
+}
+
+
+def index_funds(amount: float, currency: str, market_id: str) -> list[dict]:
+    """The market's broad index fund(s) with real prices and how many whole units the amount buys. Free: no model."""
+    from . import sharia
+    out = []
+    halal_on = sharia.enabled()
+    for m in (["sa", "us"] if market_id == "both" else [market_id]):
+        for sym, en, ar, _sector, what, issuer_sharia in ETFS.get(m, []):
+            if halal_on and not issuer_sharia:
+                continue   # the screen can't check a fund's holdings; only funds whose issuer states compliance are shown
+            px = market.last_price(sym)
+            rate = allocation.fx(currency, px["currency"]) if px else None
+            unit = px["price"] / rate if px and rate else None
+            n = int(amount // unit) if unit else 0
+            out.append({"symbol": sym, "name_en": en, "name_ar": ar, "what": what, "issuer_sharia": issuer_sharia,
+                        "price": px["price"] if px else None, "currency": px["currency"] if px else None,
+                        "units": n, "cost": round(n * unit, 2) if unit else None})
+    return out
+
+
 # What a beginner needs to know about the market they chose. Regular hours only (holidays not included).
 MARKETS = {
     "sa": {"name": {"ar": "السوق السعودي (تداول)", "en": "Saudi market (Tadawul)"}, "currency": "SAR", "tz": "Asia/Riyadh",
@@ -91,6 +126,33 @@ MARKETS = {
                ("Benny", "الصفقة تتسوّى بعد يوم عمل واحد (T+1).", "Trades settle one business day later (T+1)."),
            ]},
 }
+
+
+# "How do I actually buy this?" step by step, per market. Broker-neutral; nothing here names or rates a broker.
+HOW_TO_BUY = {
+    "sa": [("افتح محفظة استثمارية عند وسيط مرخّص من هيئة السوق المالية (غالباً من تطبيق بنكك).",
+            "Open an investment account with a broker licensed by the Capital Market Authority (often inside your bank's app)."),
+           ("حوّل المبلغ من حسابك البنكي للمحفظة.", "Move the money from your bank account to the investment account."),
+           ("ابحث عن الشركة بالرمز (مثل 2222) وتأكد من الاسم.", "Search the company by its symbol (e.g. 2222) and check the name."),
+           ("استخدم «أمر محدد السعر» بسعر قريب من السعر الحالي، عشان ما تشتري بسعر أعلى مما توقعت.",
+            "Use a limit order near the current price, so you never pay more than you expect."),
+           ("شوف العمولة والضريبة في شاشة التأكيد قبل ما تضغط تنفيذ.", "Check the commission and VAT on the confirmation screen before you press buy."),
+           ("الأسهم تنتقل لك رسمياً بعد يومي عمل (T+2). احتفظ بنسخة من إشعار التنفيذ.",
+            "The shares are formally yours two business days later (T+2). Keep a copy of the trade confirmation.")],
+    "us": [("افتح حساب عند وسيط يتيح الأسهم الأمريكية (كثير من الوسطاء السعوديين يتيحونها، وفيه وسطاء دوليين).",
+            "Open an account with a broker that offers US stocks (many Saudi brokers do; there are international ones too)."),
+           ("حوّل المبلغ وانتبه لرسوم تحويل العملة من الريال للدولار.", "Transfer the money and check the currency-conversion fee from your currency to dollars."),
+           ("ابحث بالرمز (مثل AAPL) وتأكد من الاسم والبورصة.", "Search by symbol (e.g. AAPL) and check the name and exchange."),
+           ("السوق يفتح 9:30 إلى 4:00 بتوقيت نيويورك. استخدم «أمر محدد السعر».",
+            "The market is open 9:30 to 16:00 New York time. Use a limit order."),
+           ("بعض الوسطاء يسمحون بجزء من السهم (كسور)، وهذا يساعد مع المبالغ الصغيرة.",
+            "Some brokers let you buy part of a share (fractional shares), which helps with small amounts."),
+           ("الصفقة تتسوّى بعد يوم عمل (T+1). احتفظ بنسخة من إشعار التنفيذ.", "Trades settle one business day later (T+1). Keep the trade confirmation.")],
+}
+
+
+def how_to_buy(market_id: str, lang: str) -> dict:
+    return {m: [ar if lang == "ar" else en for ar, en in HOW_TO_BUY[m]] for m in (["sa", "us"] if market_id == "both" else [market_id])}
 
 
 def market_status(market_id: str) -> dict:
@@ -182,7 +244,7 @@ def suggest(amount: float, currency: str, market_id: str, risk: str, count: int)
         if len(picks) >= count:
             break
     out = {"picks": picks, "prices_available": any(prices.values()), "source": market.SOURCE,
-           "markets": market_status(market_id)}
+           "markets": market_status(market_id), "index_funds": index_funds(amount, currency, market_id)}
     if halal is not None:
         out["sharia"] = {**halal, "short": len(picks) < count, "wanted": count}
     return out
@@ -225,19 +287,20 @@ def guide(scan_id: str, lang: str) -> dict:
     plan = allocation.plan(scan["sessions"], prof["amount"], prof["currency"])
     tips = [{"character": c, "tip": ar if lang == "ar" else en} for c, (ar, en) in STATIC_TIPS.items()]
     base = {"profile": prof, "plan": plan, "tips": tips, "stocks": [], "intro": None, "closing": None, "generated": False,
-            "market_tips": market_tips(prof.get("market", "sa"), lang), "markets": market_status(prof.get("market", "sa"))}
+            "market_tips": market_tips(prof.get("market", "sa"), lang), "markets": market_status(prof.get("market", "sa")),
+            "how_to_buy": how_to_buy(prof.get("market", "sa"), lang)}
     if scan.get("mode") == "demo" or not any(s.get("status") == "done" for s in scan["sessions"]):
         return base
     cached = db.get_setting(f"beginner_guide:{scan_id}:{lang}")
     if cached:
-        return {**base, **cached, "plan": plan, "market_tips": base["market_tips"], "markets": base["markets"]}
+        return {**base, **cached, "plan": plan, "market_tips": base["market_tips"], "markets": base["markets"], "how_to_buy": base["how_to_buy"]}
     try:
         g = _mentor(scan, prof, plan, lang)
     except Exception as e:  # noqa: BLE001
         log.info("beginner lesson failed: %s", type(e).__name__)
         return base
     db.set_setting(f"beginner_guide:{scan_id}:{lang}", g)
-    return {**base, **g, "plan": plan, "market_tips": base["market_tips"], "markets": base["markets"]}
+    return {**base, **g, "plan": plan, "market_tips": base["market_tips"], "markets": base["markets"], "how_to_buy": base["how_to_buy"]}
 
 
 def _mentor(scan: dict, prof: dict, plan: dict, lang: str) -> dict:

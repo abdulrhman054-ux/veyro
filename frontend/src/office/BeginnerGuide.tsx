@@ -10,7 +10,8 @@ type Guide = { profile: { amount: number; currency: string; market: string; risk
   intro: string | null; closing: string | null; stocks: { ticker: string; simple: string }[];
   tips: { character: CharKey; tip: string }[]; generated: boolean;
   market_tips?: { character: CharKey; tip: string; market: string }[];
-  markets?: Record<string, { open: boolean; name: { ar: string; en: string }; hours: { ar: string; en: string } }> };
+  markets?: Record<string, { open: boolean; name: { ar: string; en: string }; hours: { ar: string; en: string } }>;
+  how_to_buy?: Record<string, string[]> };
 
 /** After a beginner run: Leo's whole-share plan for the amount, what the team found in plain words,
  *  and one practical tip from each character's expertise. */
@@ -78,6 +79,12 @@ export function BeginnerGuide({ scanId, onOpen, onClose }: { scanId: string; onO
                 </div>
               ))}
             </section>
+          ))}
+          {g.how_to_buy && Object.entries(g.how_to_buy).map(([k, steps]) => (
+            <details key={k} className="card cream" style={{ padding: 14 }}>
+              <summary style={{ fontWeight: 800, cursor: "pointer" }}>{ar ? `🛒 كيف تشتري فعلياً، خطوة خطوة (${g.markets?.[k]?.name.ar ?? k})` : `🛒 How to actually buy, step by step (${g.markets?.[k]?.name.en ?? k})`}</summary>
+              <ol style={{ margin: "8px 0 0", paddingInlineStart: 20, lineHeight: 1.9 }}>{steps.map((x, i) => <li key={i}><Glossed text={x} /></li>)}</ol>
+            </details>
           ))}
           {g.closing && <p style={{ margin: 0, lineHeight: 1.8, fontWeight: 700 }}>{g.closing}</p>}
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>{t.disclaimer}</p>

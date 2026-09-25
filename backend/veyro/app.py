@@ -1160,6 +1160,15 @@ def price_alerts_delete(aid: int):
     return {"alerts": extras.delete_price_alert(aid)}
 
 
+@app.get("/api/fx")
+def fx_rate(src: str, dst: str):
+    """Units of dst per 1 src (Yahoo), e.g. to compare an analysis's cost in USD with a budget in SAR."""
+    from .allocation import fx
+    if not (re.fullmatch(r"[A-Z]{3}", src) and re.fullmatch(r"[A-Z]{3}", dst)):
+        raise HTTPException(400, "bad_currency")
+    return {"rate": fx(src, dst)}
+
+
 # ---------------------------------------------------------------- broker fees (entered by the owner; never guessed)
 class FeesIn(BaseModel):
     market: str

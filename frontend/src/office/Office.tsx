@@ -21,6 +21,8 @@ import type { History } from "../api";
 import { ShariaBadge, disclaimer, methodName, useShariaHidden } from "../extras/Sharia";
 
 type Mode = "single" | "watchlist" | "scan" | "beginner";
+type IndexFund = { symbol: string; name_en: string; name_ar: string; what: { ar: string; en: string }; issuer_sharia: boolean;
+  price: number | null; currency: string | null; units: number; cost: number | null };
 type BPick = { symbol: string; name_en: string; name_ar: string; sector: string; style: string; price: number; currency: string; price_in_budget: number };
 type ScanView = { id: string; tickers: string[]; source: Candidate[] | null; sessions: string[]; results: Record<number, string | null>;
   ranking: { ticker: string; rating: string | null; session_id: string; status: string }[] | null; done: boolean; stopped?: boolean;
@@ -92,6 +94,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
   const [bPicks, setBPicks] = useState<BPick[] | null>(null);
   const [bChosen, setBChosen] = useState<Set<string>>(new Set());
   const [bLoading, setBLoading] = useState(false);
+  const [bIndex, setBIndex] = useState<IndexFund[]>([]);
   const [bSharia, setBSharia] = useState<{ method: string; excluded: { symbol: string; status: string }[]; short: boolean; wanted: number } | null>(null);
   const [bMarkets, setBMarkets] = useState<Record<string, { open: boolean; name: { ar: string; en: string }; hours: { ar: string; en: string } }> | null>(null);
   useEffect(() => { setBPicks(null); }, [bMarket, bRisk, bCount, budgetText, budgetCur]);
@@ -102,9 +105,9 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
     if (!budget) { setErr(lang === "ar" ? "اكتب المبلغ اللي معك أول (مثلاً 1000)." : "Enter the amount you have first (e.g. 1000)."); return; }
     setBLoading(true);
     try {
-      const r = await api.post<{ picks: BPick[]; prices_available: boolean; markets: typeof bMarkets; sharia?: typeof bSharia }>("/api/beginner/suggest",
+      const r = await api.post<{ picks: BPick[]; prices_available: boolean; markets: typeof bMarkets; sharia?: typeof bSharia; index_funds?: IndexFund[] }>("/api/beginner/suggest",
         { amount: budget.amount, currency: budget.currency, market: bMarket, risk: bRisk, count: bCount });
-      setBPicks(r.picks); setBChosen(new Set(r.picks.map((x) => x.symbol))); setBMarkets(r.markets); setBSharia(r.sharia ?? null);
+      setBPicks(r.picks); setBChosen(new Set(r.picks.map((x) => x.symbol))); setBMarkets(r.markets); setBSharia(r.sharia ?? null); setBIndex(r.index_funds ?? []);
       if (!r.picks.length) setErr(r.prices_available
         ? (lang === "ar" ? "المبلغ ما يكفي لسهم واحد من الشركات المقترحة. جرّب مبلغ أكبر أو سوق ثاني." : "The amount doesn't cover one share of the suggested companies. Try a larger amount or another market.")
         : (lang === "ar" ? "أسعار السوق غير متوفرة الآن. جرّب بعد شوي." : "Market prices are unavailable right now. Try again shortly."));
@@ -161,6 +164,21 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
     return `${fmtUsd(e.low * n, lang)} – ${fmtUsd(e.high * n, lang)}`;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, demo, mode, picked, count, chosen, preview, bPicks, bChosen, bCount, lang, t]);
+
+  // The analysis's own cost compared with the amount being invested (a $5 analysis on $270 is ~2%).
+  const [usdPer, setUsdPer] = useState<number | null>(1);
+  useEffect(() => {
+    if (budgetCur === "USD") { setUsdPer(1); return; }
+    let alive = true;
+    api.get<{ rate: number | null }>(`/api/fx?src=${budgetCur}&dst=USD`).then((r) => alive && setUsdPer(r.rate)).catch(() => alive && setUsdPer(null));
+    return () => { alive = false; };
+  }, [budgetCur]);
+  const costShare = useMemo(() => {
+    const e = settings?.estimate;
+    if (demo || !budget || !usdPer || !e?.known || e.high == null) return null;
+    return (e.high * batchSize()) / (budget.amount * usdPer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings, demo, budget, usdPer, mode, picked, count, chosen, preview, bPicks, bChosen, bCount, economy, econTop]);
 
   function batchSize() {
     if (mode === "single") return 1;
@@ -460,6 +478,24 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
               <span className="muted" style={{ fontSize: 12 }}>{lang === "ar" ? "أسعار Yahoo الحالية · للتعلّم وليس نصيحة مالية" : "Current Yahoo prices · for learning, not financial advice"}</span>
             </div>
           )}
+          {bPicks && bIndex.length > 0 && (
+            <div className="stack index-funds" style={{ gap: 6 }} aria-label={lang === "ar" ? "صندوق مؤشرات" : "Index fund"}>
+              <b>{lang === "ar" ? "🧺 أبسط خيار: صندوق مؤشرات (بدون تحليل وبدون تكلفة تحليل)" : "🧺 The simplest option: an index fund (no analysis, no analysis cost)"}</b>
+              <span className="muted" style={{ fontSize: 13, lineHeight: 1.7 }}>{lang === "ar"
+                ? "بدل ما تختار شركات بنفسك، الصندوق يشتري لك السوق كله دفعة وحدة. لكثير من المبتدئين هذا يكفي كبداية."
+                : "Instead of picking companies, the fund buys the whole market for you in one go. For many beginners that's enough to start."}</span>
+              {bIndex.map((f) => (
+                <div key={f.symbol} className="chip mkt pick" style={{ height: "auto", minHeight: 34, whiteSpace: "normal", gap: 6 }}>
+                  <b>{lang === "ar" ? f.name_ar : f.name_en}</b><span className="pixel ltr muted">{f.symbol}</span>
+                  <span>{f.what[lang]}</span>
+                  {f.price != null && f.currency ? <span className="ltr">{money(f.price, f.currency, lang)}</span> : <span className="muted">{t.unavailable}</span>}
+                  {f.price != null && <span>{lang === "ar" ? `مبلغك يشتري ${f.units} وحدة (${money(f.cost ?? 0, budgetCur, lang)})` : `your amount buys ${f.units} units (${money(f.cost ?? 0, budgetCur, lang)})`}</span>}
+                  {f.issuer_sharia && <span className="muted" style={{ fontSize: 12 }}>{lang === "ar" ? "☪ المُصدر يذكر أنه متوافق مع الشريعة" : "☪ the issuer states it is Sharia-compliant"}</span>}
+                  {f.units > 0 && <AddToPaper items={[{ ticker: f.symbol, shares: f.units }]} label={lang === "ar" ? "📒 للمحفظة الافتراضية" : "📒 To the virtual portfolio"} />}
+                </div>
+              ))}
+            </div>
+          )}
           {bPicks && bSharia && (
             <div className={bSharia.short ? "warnstrip" : "muted"} role="status" style={{ fontSize: 13, lineHeight: 1.7 }}>
               {lang === "ar"
@@ -499,6 +535,13 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
         </div>
       )}
       {err && <div className="warnstrip" role="alert">{err}</div>}
+      {!running && costShare != null && costShare > 0.005 && (
+        <div className="warnstrip" role="note" data-cost-warning>
+          {lang === "ar"
+            ? `⚠ هذا التحليل ممكن يكلّف حتى ${estimate?.split("–").pop()?.trim()}، يعني حوالي ${(costShare * 100).toFixed(1)}٪ من مبلغك، قبل عمولة الوسيط. هذا أكثر مما تاخذه كثير من الصناديق في سنة كاملة. جرّب نموذج أرخص (Haiku)، أو الوضع الاقتصادي، أو صندوق المؤشرات بدون تحليل.`
+            : `⚠ This analysis could cost up to ${estimate?.split("–").pop()?.trim()}, about ${(costShare * 100).toFixed(1)}% of your amount, before broker fees. That's more than many funds charge in a whole year. Try a cheaper model (Haiku), economy mode, or the index fund with no analysis.`}
+        </div>
+      )}
       {reuseOffer && (
         <div className="card cream row" role="alertdialog" aria-label={lang === "ar" ? "تحليل سابق" : "Earlier analysis"} style={{ padding: 14, gap: 10 }}>
           <span style={{ flex: 1, minWidth: 220, lineHeight: 1.8 }}>{lang === "ar"
