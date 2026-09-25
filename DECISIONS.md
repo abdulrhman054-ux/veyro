@@ -204,3 +204,7 @@ Full findings: `docs/REVIEW.md`.
     - Pressing Stop ends the session for viewers and in the database at once, under the same lock the verdict uses: whichever comes first wins, and a recorded verdict is never taken back.
     - The worker checks for Stop at each start-up step and during a resumed run's replay.
     - Leo's "stopped" line no longer holds the Start button (it used to, for about 8 s).
+
+## Fourth round (owner: «قم بااتمام الباقي…», 2026-09-25)
+123. **Saudi market scan.** Yahoo's predefined screeners (day gainers, most actives…) are US-only, so the Saudi ones are built with yfinance `EquityQuery` on `region = sa` (exchange SAU), liquid names only (day volume > 100,000): top gainers, top losers, most active, low P/E (0–15). The budget filter compares prices in riyals. If Yahoo's screener fails or returns nothing, gainers/losers fall back to Veyro's own Saudi list moved by today's change, and the picker says so. Whether Yahoo's `region sa` screener returns full Tadawul coverage is unverified offline (REVIEW §8).
+124. **Header on one row from 1260 px.** Below that it wraps as before; the sound label and brand tagline are hidden on the one-row layout (the icon and a tooltip remain).
