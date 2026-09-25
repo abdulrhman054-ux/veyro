@@ -44,6 +44,7 @@ def test_recorded_verdict_is_shown_when_stop_lands_while_it_returns():
     bus, cancel = runner.Bus(loop), threading.Event()
     em = runner.Emitter(bus, cancel)
     f: Future = Future()
+    f.veyro_verdict = True       # the verdict job's future (runner marks it)
     em.put(f)
     time.sleep(0.3)
     em.verdict_in.set()          # recorded under the lock ...
@@ -143,3 +144,30 @@ def test_resumed_run_reuses_lines_already_voiced():
     assert [r["line"] for r in runner.prior_lines("new1", "MSFT", "2026-09-20", "Bull Researcher", hist, "ar")] == ["بولت: نقطة أولى", "بولت: نقطة ثانية"]
     assert runner.prior_lines("new1", "MSFT", "2026-09-20", "Market Analyst", "a different report", "ar") is None
     assert runner.prior_lines("new1", "MSFT", "2026-09-20", "Market Analyst", "RSI 55, trend up", "en") is None   # no English line
+
+
+def test_stop_after_the_verdict_does_not_wait_for_other_jobs():
+    # Regression found by the full browser run: after the verdict was recorded, Stop waited (up to 30 s) for ANY job
+    # still running, e.g. Albie's news fetch, instead of only the verdict job. Stop took 15 s in the office.
+    loop = asyncio.new_event_loop()
+    bus, cancel = runner.Bus(loop), threading.Event()
+    em = runner.Emitter(bus, cancel)
+    slow: Future = Future()                       # Albie, still fetching world news
+    verdict: Future = Future()
+    verdict.veyro_verdict = True
+    verdict.set_result([{"type": "verdict", "rating": "Buy"}, {"type": "end", "status": "done"}])
+    em.put(slow)
+    em.put(verdict)
+    time.sleep(0.3)
+    em.verdict_in.set()
+    t0 = time.time()
+    cancel.set()
+    while not bus.closed and time.time() - t0 < 5:
+        time.sleep(0.05)
+    took = time.time() - t0
+    if not slow.cancelled():
+        slow.set_result([])
+    em.close()
+    assert took < 1.0, took
+    assert [e["type"] for e in bus.events] == ["verdict", "end"]
+    loop.close()

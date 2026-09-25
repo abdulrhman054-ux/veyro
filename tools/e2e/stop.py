@@ -4,6 +4,7 @@ import os, time
 from playwright.sync_api import sync_playwright
 
 BASE = "http://127.0.0.1:8766"
+OUT_DBG = str(__import__("pathlib").Path(__file__).resolve().parents[2] / "verification" / "e2e") + "/"
 res, errors = [], []
 
 
@@ -40,6 +41,8 @@ def close_modals(page):
 
 def begin(page, mode, tickers=None):
     close_modals(page)
+    page.wait_for_timeout(800)   # a stopped beginner run opens its guide (the plan for what finished) a moment later
+    close_modals(page)
     page.locator(".seg button").nth(mode).click()
     if mode == 1:
         page.locator(".tsearch input").first.fill(tickers[0])
@@ -49,7 +52,11 @@ def begin(page, mode, tickers=None):
         add = page.locator(".tsearch input").first
         for tk in tickers:
             add.fill(tk); add.press("Enter"); page.wait_for_timeout(120)
-    page.locator(".startbar button.primary").click(); page.wait_for_timeout(300)
+    try:
+        page.locator(".startbar button.primary").click(timeout=10000)
+    except Exception:
+        page.screenshot(path=OUT_DBG + f"stop_blocked_{mode}.png", full_page=True); raise
+    page.wait_for_timeout(300)
     if page.locator("[role=alertdialog] button.ghost").count(): page.locator("[role=alertdialog] button.ghost").first.click()
     if page.locator("[role=alertdialog] button.primary").count(): page.locator("[role=alertdialog] button.primary").first.click()
 

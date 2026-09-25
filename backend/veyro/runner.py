@@ -376,9 +376,9 @@ class Emitter:
                         except FutureTimeout:
                             pass
                     if self.cancel is not None and self.cancel.is_set():
-                        if not item.done() and self.verdict_in.is_set():
+                        if not item.done() and self.verdict_in.is_set() and getattr(item, "veyro_verdict", False):
                             try:
-                                item.result(timeout=30)   # recorded already: it is only returning its events
+                                item.result(timeout=30)   # the verdict job, recorded already: it is only returning its events
                             except Exception:  # noqa: BLE001
                                 pass
                         evs = item.result() if item.done() and not item.cancelled() and not item.exception() else None
@@ -824,7 +824,9 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                 {"type": "usage", "data": usage},
                 {"type": "end", "status": "done"}]
 
-    em.put(pool.submit(verdict_job))
+    fut = pool.submit(verdict_job)
+    fut.veyro_verdict = True   # the only job the emitter still waits for after Stop, once the verdict is recorded
+    em.put(fut)
     pool.shutdown(wait=False)
 
 
