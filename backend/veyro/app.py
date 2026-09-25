@@ -213,6 +213,7 @@ def delete_data_key(source: str):
     if source not in ("fred", "alpha_vantage", "typesafe"):
         raise HTTPException(400, "bad_key")
     delete_secret(f"data:{source}")
+    runner.unset_env({"fred": "FRED_API_KEY", "alpha_vantage": "ALPHA_VANTAGE_API_KEY", "typesafe": "TYPESAFE_API_KEY"}[source])
     return settings_payload()
 
 
@@ -305,6 +306,8 @@ def remove_key(provider: str):
     if provider not in PROVIDERS:
         raise HTTPException(400, "unknown_provider")
     delete_secret(f"llm:{provider}")
+    if PROVIDERS[provider]["env"]:
+        runner.unset_env(PROVIDERS[provider]["env"])
     return settings_payload()
 
 

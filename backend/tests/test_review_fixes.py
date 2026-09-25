@@ -204,3 +204,26 @@ def test_scan_that_hits_an_error_still_ends(monkeypatch):
         time.sleep(0.05)
     assert bus.closed and bus.events[-1]["type"] == "end"
     assert db.get_scan(scan_id)["status"] == "error"
+
+
+# ---------------------------------------------------------------- removing a key must stop it being used
+def test_removed_llm_key_is_no_longer_active(monkeypatch):
+    import keyring
+    from keyring.backend import KeyringBackend
+    from veyro import runner
+    from veyro.secrets_store import llm_key, set_secret
+
+    class Mem(KeyringBackend):
+        priority = 1
+        store: dict = {}
+        def get_password(self, s, u): return self.store.get((s, u))
+        def set_password(self, s, u, p): self.store[(s, u)] = p
+        def delete_password(self, s, u): self.store.pop((s, u), None)
+    keyring.set_keyring(Mem())
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    set_secret("llm:anthropic", "sk-ant-api03-REMOVEME-000000000000001234")
+    runner.activate_key("anthropic", llm_key("anthropic")[0])
+    r = _client("127.0.0.1").delete("/api/keys/anthropic")
+    assert r.status_code == 200
+    assert llm_key("anthropic")[0] is None
+    assert "ANTHROPIC_API_KEY" not in __import__("os").environ

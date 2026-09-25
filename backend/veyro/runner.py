@@ -272,7 +272,27 @@ def activate_key(provider: str, key: str | None) -> None:
     Keyless providers (Ollama) need nothing."""
     env = PROVIDERS[provider]["env"]
     if env and key:
-        os.environ[env] = key
+        set_env(env, key)
+
+
+_ENV_AT_START: dict[str, str | None] = {}
+
+
+def set_env(env: str, value: str) -> None:
+    """Expose a key to the framework's clients, remembering what the environment (.env) had before."""
+    _ENV_AT_START.setdefault(env, os.environ.get(env))
+    os.environ[env] = value
+
+
+def unset_env(env: str) -> None:
+    """Undo set_env after the owner removes a key: it must stop being used now, not after a restart."""
+    if env not in _ENV_AT_START:
+        return
+    orig = _ENV_AT_START.pop(env)
+    if orig is None:
+        os.environ.pop(env, None)
+    else:
+        os.environ[env] = orig
 
 
 MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@\-]{1,99}$")
@@ -502,7 +522,7 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
     for dk, env in (("data:fred", "FRED_API_KEY"), ("data:alpha_vantage", "ALPHA_VANTAGE_API_KEY"), ("data:typesafe", "TYPESAFE_API_KEY")):
         v = get_secret(dk)
         if v:
-            os.environ[env] = v
+            set_env(env, v)
     pc, pc_broker = portfolio_context(budget)
     em.put({"type": "session", "id": sid, "ticker": symbol, "mode": "real", "lang": lang, "trade_date": trade_date,
             "provider": provider, "quick_model": quick, "deep_model": deep,
