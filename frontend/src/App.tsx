@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { setShariaConf } from "./extras/Sharia";
 import { api, type Settings } from "./api";
 import { click, unlockAudio } from "./audio";
 import { usePrefs } from "./prefs";
@@ -50,6 +51,7 @@ function Shell() {
   const openMorning = () => { api.get<{ morning_scan: string | null }>("/api/alerts").then((r) => { if (r.morning_scan) setPendingScan({ id: r.morning_scan, nonce: Date.now() }); go("office"); }).catch(() => go("office")); };
 
   useEffect(() => { api.get<Settings>("/api/settings").then(setSettings).catch(() => {}); }, []);
+  useEffect(() => { setShariaConf(settings?.sharia); }, [settings]);
   // "Run it now" in Settings (and other places) ask the shell to follow a scan in the Office.
   useEffect(() => {
     const f = (e: Event) => { const id = (e as CustomEvent<string>).detail; if (id) { setPendingScan({ id, nonce: Date.now() }); setScreen("office"); } };

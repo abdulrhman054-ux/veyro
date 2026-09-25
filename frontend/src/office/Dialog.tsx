@@ -7,6 +7,7 @@ import type { Verdict } from "../api";
 import type { Line } from "./useSession";
 import { useLineText } from "./lineText";
 import { useVerdictText } from "./verdictText";
+import { ShariaPanel } from "../extras/Sharia";
 import { canReadAloud, readAloud } from "./readAloud";
 
 /** Typewriter dialogue box. Click (or Enter/Space) finishes the line, click again advances. */
@@ -172,6 +173,7 @@ export function VerdictBox({ v, lang, onOpenReport, demo, sessionId, extra, tick
       <div className="row" style={{ justifyContent: "center", marginTop: 10 }}>
         <button className="primary green btn" style={{ height: 42, fontSize: 16 }} onClick={onOpenReport}>{t.openReport}</button>
         {extra}
+        {!demo && (sessionTicker ?? null) && <ShariaPanel symbol={sessionTicker!} compact />}
         <span style={{ fontSize: 13, fontWeight: 700, color: "#7A6147" }}>{t.disclaimer}</span>
       </div>
     </div>

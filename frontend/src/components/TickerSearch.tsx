@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { usePrefs } from "../prefs";
+import { ShariaBadge, useShariaHidden } from "../extras/Sharia";
 
 export type SearchHit = { symbol: string; name: string | null; exchange: string | null; type: string | null; source: string };
 
@@ -19,7 +20,10 @@ export function TickerSearch({ value, onChange, onPick, onEnter, disabled, place
 }) {
   const { prefs } = usePrefs();
   const lang = prefs.lang;
-  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [allHits, setHits] = useState<SearchHit[]>([]);
+  // optional Sharia screen: badge each company, and hide failing ones when the owner chose "hide non-compliant"
+  const shHidden = useShariaHidden(allHits.filter((h) => h.type === "EQUITY").map((h) => h.symbol));
+  const hits = allHits.filter((h) => !shHidden(h.symbol));
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const [loading, setLoading] = useState(false);
@@ -83,6 +87,7 @@ export function TickerSearch({ value, onChange, onPick, onEnter, disabled, place
               <b className="pixel ltr">{h.symbol}</b>
               <span className="nm">{h.name ?? ""}</span>
               <span className="muted tp">{[h.type ? TYPE_LABEL[h.type]?.[lang] ?? h.type : null, h.exchange].filter(Boolean).join(" · ")}</span>
+              {h.type === "EQUITY" && <ShariaBadge symbol={h.symbol} />}
             </li>
           ))}
         </ul>

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api, type Settings } from "../api";
 import { SpriteSvg, charColor } from "../art/Sprite";
 import { PageHeader } from "../components/PageHeader";
+import { ShariaSettings } from "../extras/Sharia";
 import { DailyAssistantSettings } from "../assistant/Assistant";
 import { CHAR_ORDER, charName, fmtUsd } from "../i18n";
 import { usePrefs, type Intensity, type Theme } from "../prefs";
@@ -170,6 +171,8 @@ export function SettingsScreen({ settings, onChange, extra }: { settings: Settin
           <div className="toggle"><span>{t.estimate}</span>
             <span className="pixel ltr">{e.known && e.low != null && e.high != null ? `${fmtUsd(e.low, lang)} – ${fmtUsd(e.high, lang)}` : t.unknownPrice}</span></div>
         </section>
+
+        <ShariaSettings settings={settings} onChange={onChange} />
 
         <section className="card stack" aria-labelledby="s-look">
           <h2 id="s-look" style={{ fontSize: 22 }}>{t.lookAndSound}</h2>

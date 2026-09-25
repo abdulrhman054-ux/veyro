@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { SpriteSvg } from "../art/Sprite";
 import { RATING, fmtNum, sharesText } from "../i18n";
+import { disclaimer, methodName, reasonText, type ShariaResult } from "../extras/Sharia";
 import { usePrefs } from "../prefs";
 import { AddToPaper } from "../extras/Paper";
 
@@ -10,7 +11,8 @@ type Reasons = Partial<Record<"ar" | "en", string | null>>;
 export type PlanRow = { ticker: string; rating: string; conviction: string; session_id: string; target: number; price: number | null;
   price_currency?: string; shares: number; cost: number; note: string | null; name?: Names; reason?: Reasons };
 export type Plan = { amount: number; currency: string; rows: PlanRow[]; cash_left: number;
-  skipped: { ticker: string; rating: string | null; session_id: string; status?: string; name?: Names; reason?: Reasons }[]; notes: string[]; source?: string };
+  skipped: { ticker: string; rating: string | null; session_id: string; status?: string; name?: Names; reason?: Reasons; sharia?: ShariaResult }[];
+  notes: string[]; source?: string; sharia?: { method: string; excluded: string[] } | null };
 
 export function money(v: number, cur: string, lang: "ar" | "en") {
   const n = fmtNum(v, lang, { maximumFractionDigits: 2, minimumFractionDigits: v % 1 ? 2 : 0 });
@@ -70,11 +72,19 @@ export function BudgetPlan({ url, budget, onOpen, plan: given }: { url?: string;
                 {s.rating ? <span className={`vchip ${RATING[s.rating]?.tone ?? "none"}`}>{ar ? RATING[s.rating]?.ar ?? s.rating : RATING[s.rating]?.en ?? s.rating}</span>
                   : <span className="muted">{ar ? "ما اكتمل تحليله" : "analysis didn't finish"}</span>}
                 {s.reason?.[lang] && <div className="muted" style={{ fontSize: 13 }}>{ar ? "ليش: " : "Why: "}{s.reason[lang]}</div>}
+                {s.sharia && (s.rating === "Buy" || s.rating === "Overweight") && <div style={{ fontSize: 13 }} data-sharia-excluded={s.ticker}>
+                  ☪ {s.sharia.status === "unknown"
+                    ? (ar ? "استبعدناه من الخطة لأن الفحص الشرعي «غير معروف» (ما نعتبره متوافق بدون بيانات): " : "Left out of the plan: the Sharia screen is Unknown (never treated as compliant without data): ")
+                    : (ar ? "استبعدناه من الخطة لأنه غير متوافق شرعياً: " : "Left out of the plan: not Sharia-compliant: ")}
+                  {s.sharia.reasons.map((x) => reasonText(x, lang, s.sharia!.method)).join(ar ? "؛ " : "; ")}</div>}
               </li>
             ))}
           </ul>
         </div>
       )}
+      {plan.sharia && <p className="muted" style={{ margin: 0, fontSize: 13 }}>☪ {ar
+        ? `الفحص الشرعي مفعّل (${methodName(plan.sharia.method, lang)}): الأسهم غير المتوافقة وغير المعروفة ما تاخذ من المبلغ. ${disclaimer(lang)}`
+        : `Sharia screening is on (${methodName(plan.sharia.method, lang)}): non-compliant and unknown stocks get no money. ${disclaimer(lang)}`}</p>}
       {plan.rows.length === 0 ? (
         <p style={{ margin: 0, lineHeight: 1.8 }}>{ar
           ? "ولا سهم من اللي حللناها طلع قراره «شراء» أو «زيادة». نصيحة الفريق: خلّ المبلغ نقد الحين وانتظر فرصة أوضح. زئير!"

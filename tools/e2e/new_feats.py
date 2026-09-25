@@ -56,8 +56,12 @@ with sync_playwright() as p:
     tile.locator("button[aria-label='تنبيه سعر']").click()
     tile.locator(".alertform select").select_option("above")
     tile.locator(".alertform input").fill("1")
-    tile.locator(".alertform button.primary").click(); pg.wait_for_timeout(4000)
-    fired=[a for a in api("/api/alerts")["alerts"] if a["kind"]=="price"]
+    tile.locator(".alertform button.primary").click()
+    # the fake feed ticks 6 random symbols every 0.4 s, so wait for this symbol's tick instead of a fixed 4 s
+    for _ in range(30):
+        pg.wait_for_timeout(500)
+        fired=[a for a in api("/api/alerts")["alerts"] if a["kind"]=="price"]
+        if fired: break
     check("price alert fires on a live tick", len(fired)>=1, fired[0]["text_ar"] if fired else "")
     pg.screenshot(path=f"{S}/nf_live_alert.png")
     # history paper

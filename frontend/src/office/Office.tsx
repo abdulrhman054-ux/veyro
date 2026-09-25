@@ -18,6 +18,7 @@ import { TICKER, TickerSearch } from "../components/TickerSearch";
 import { moodFrom } from "./mood";
 import { sceneOf, toneOf, type SceneId } from "./scenes";
 import type { History } from "../api";
+import { ShariaBadge, disclaimer, methodName, useShariaHidden } from "../extras/Sharia";
 
 type Mode = "single" | "watchlist" | "scan" | "beginner";
 type BPick = { symbol: string; name_en: string; name_ar: string; sector: string; style: string; price: number; currency: string; price_in_budget: number };
@@ -67,6 +68,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
   };
   const [screeners, setScreeners] = useState<Record<string, { ar: string; en: string }>>({});
   const [preview, setPreview] = useState<Candidate[] | null>(null);
+  const shHidden = useShariaHidden(preview?.map((c) => c.symbol) ?? []);   // optional Sharia screen: "hide non-compliant"
   const [previewState, setPreviewState] = useState<"idle" | "loading" | "none">("idle");
   const hasKey = !!settings && settings.keys[settings.provider]?.present;
   const [demo, setDemo] = useState<boolean>(false);
@@ -90,6 +92,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
   const [bPicks, setBPicks] = useState<BPick[] | null>(null);
   const [bChosen, setBChosen] = useState<Set<string>>(new Set());
   const [bLoading, setBLoading] = useState(false);
+  const [bSharia, setBSharia] = useState<{ method: string; excluded: { symbol: string; status: string }[]; short: boolean; wanted: number } | null>(null);
   const [bMarkets, setBMarkets] = useState<Record<string, { open: boolean; name: { ar: string; en: string }; hours: { ar: string; en: string } }> | null>(null);
   useEffect(() => { setBPicks(null); }, [bMarket, bRisk, bCount, budgetText, budgetCur]);
   // The amount follows the chosen market's currency (both markets: keep whatever the owner picked).
@@ -99,9 +102,9 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
     if (!budget) { setErr(lang === "ar" ? "اكتب المبلغ اللي معك أول (مثلاً 1000)." : "Enter the amount you have first (e.g. 1000)."); return; }
     setBLoading(true);
     try {
-      const r = await api.post<{ picks: BPick[]; prices_available: boolean; markets: typeof bMarkets }>("/api/beginner/suggest",
+      const r = await api.post<{ picks: BPick[]; prices_available: boolean; markets: typeof bMarkets; sharia?: typeof bSharia }>("/api/beginner/suggest",
         { amount: budget.amount, currency: budget.currency, market: bMarket, risk: bRisk, count: bCount });
-      setBPicks(r.picks); setBChosen(new Set(r.picks.map((x) => x.symbol))); setBMarkets(r.markets);
+      setBPicks(r.picks); setBChosen(new Set(r.picks.map((x) => x.symbol))); setBMarkets(r.markets); setBSharia(r.sharia ?? null);
       if (!r.picks.length) setErr(r.prices_available
         ? (lang === "ar" ? "المبلغ ما يكفي لسهم واحد من الشركات المقترحة. جرّب مبلغ أكبر أو سوق ثاني." : "The amount doesn't cover one share of the suggested companies. Try a larger amount or another market.")
         : (lang === "ar" ? "أسعار السوق غير متوفرة الآن. جرّب بعد شوي." : "Market prices are unavailable right now. Try again shortly."));
@@ -191,7 +194,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
       } else {
         // Scan with ticked candidates = analyse exactly those; otherwise the screener's top N.
         const tickers = mode === "watchlist" ? picked : mode === "beginner" ? (bPicks ?? []).map((c) => c.symbol).filter((x) => bChosen.has(x))
-          : preview && chosen.size ? preview.map((c) => c.symbol).filter((x) => chosen.has(x)) : null;
+          : preview && chosen.size ? preview.map((c) => c.symbol).filter((x) => chosen.has(x) && !shHidden(x)) : null;
         if (tickers && tickers.length === 0) { setErr(lang === "ar" ? "اختر سهم واحد على الأقل." : "Pick at least one stock."); return; }
         const n = tickers ? tickers.length : count;
         const e = settings?.estimate;
@@ -451,9 +454,21 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
                   <b>{lang === "ar" ? c.name_ar : c.name_en}</b><span className="pixel ltr muted">{c.symbol}</span>
                   <span className="ltr">{money(c.price, c.currency, lang)}</span>
                   <span className="muted" style={{ fontSize: 12 }}>{c.style === "steady" ? (lang === "ar" ? "مستقر" : "steady") : (lang === "ar" ? "نمو" : "growth")}</span>
+                  <ShariaBadge symbol={c.symbol} />
                 </label>
               ))}
               <span className="muted" style={{ fontSize: 12 }}>{lang === "ar" ? "أسعار Yahoo الحالية · للتعلّم وليس نصيحة مالية" : "Current Yahoo prices · for learning, not financial advice"}</span>
+            </div>
+          )}
+          {bPicks && bSharia && (
+            <div className={bSharia.short ? "warnstrip" : "muted"} role="status" style={{ fontSize: 13, lineHeight: 1.7 }}>
+              {lang === "ar"
+                ? `☪ الفحص الشرعي مفعّل (${methodName(bSharia.method, lang)}): نقترح الشركات المتوافقة فقط، واستبعدنا ${bSharia.excluded.length} (غير متوافقة: ${bSharia.excluded.filter((x) => x.status === "not_compliant").length}، غير معروفة: ${bSharia.excluded.filter((x) => x.status === "unknown").length}).`
+                : `☪ Sharia screening is on (${methodName(bSharia.method, lang)}): only compliant companies are suggested; ${bSharia.excluded.length} were left out (not compliant: ${bSharia.excluded.filter((x) => x.status === "not_compliant").length}, unknown: ${bSharia.excluded.filter((x) => x.status === "unknown").length}).`}
+              {bSharia.short && (lang === "ar"
+                ? ` طلبت ${bSharia.wanted} وما لقينا غير ${bPicks.length} متوافقة يكفيها مبلغك، وما نكمّل القائمة بغيرها.`
+                : ` You asked for ${bSharia.wanted}; only ${bPicks.length} compliant ones fit your amount, and we won't pad the list with others.`)}
+              {" "}{disclaimer(lang)}
             </div>
           )}
           {bPicks && bMarkets && (
@@ -475,6 +490,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
           {picked.map((tk) => (
             <span key={tk} className="chip mkt pick">
               <b className="pixel ltr">{tk}</b>
+              <ShariaBadge symbol={tk} />
               <button className="x btn" disabled={running} aria-label={(lang === "ar" ? "إزالة " : "Remove ") + tk}
                 onClick={() => { setPicked((p) => p.filter((x) => x !== tk)); click(); }}>×</button>
             </span>
@@ -499,12 +515,13 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
           {preview.length === 0 ? <span>{t.unavailable}</span> : (
             <div className="row" style={{ gap: 8 }}>
               <span className="label">{t.candidatesFrom} Yahoo Finance · {fmtTime(preview[0].as_of, lang)} · {lang === "ar" ? "اختر اللي تبي تحلله" : "tick the ones to analyse"}</span>
-              {preview.map((c) => (
+              {preview.filter((c) => !shHidden(c.symbol)).map((c) => (
                 <label key={c.symbol} className="chip mkt pick" title={c.name ?? ""} style={{ cursor: "pointer", opacity: chosen.has(c.symbol) ? 1 : 0.55 }}>
                   <input type="checkbox" checked={chosen.has(c.symbol)} onChange={() => setChosen((cs) => { const n = new Set(cs); if (n.has(c.symbol)) n.delete(c.symbol); else n.add(c.symbol); return n; })} />
                   <b className="pixel ltr">{c.symbol}</b>
                   <span className="ltr">{c.price != null ? fmtUsd(c.price, lang) : t.unavailable}</span>
                   {c.change_pct != null && <span className={`ltr ${c.change_pct >= 0 ? "pos" : "neg"}`}>{fmtPct(c.change_pct / 100, lang)}</span>}
+                  <ShariaBadge symbol={c.symbol} />
                 </label>
               ))}
             </div>
@@ -555,6 +572,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen, renderVerdi
                 {scan.prescreen.map((p) => (
                   <li key={p.ticker} style={{ opacity: scan.tickers.includes(p.ticker) ? 1 : 0.5 }}>
                     <b className="pixel ltr" style={{ minWidth: 60 }}>{p.ticker}</b>
+                    <ShariaBadge symbol={p.ticker} />
                     <span className="ltr muted" style={{ fontSize: 12 }}>{p.score == null ? (lang === "ar" ? "بيانات غير كافية" : "not enough data")
                       : `${lang === "ar" ? "3 شهور" : "3m"} ${fmtPct(p.ret_3m ?? 0, lang)} · ${lang === "ar" ? "اتجاه" : "trend"} ${fmtPct(p.trend ?? 0, lang)}`}</span>
                     <span className="muted" style={{ fontSize: 12 }}>{scan.tickers.includes(p.ticker) ? (lang === "ar" ? "✓ للتحليل الكامل" : "✓ full analysis") : ""}</span>
@@ -682,6 +700,7 @@ function Ranking({ scan, onOpen, onClose }: { scan: ScanView; onOpen: (id: strin
             <li key={r.session_id}>
               <b className="pixel" style={{ fontSize: 20, width: 28 }}>{i + 1}</b>
               <b className="pixel ltr" style={{ minWidth: 70 }}>{r.ticker}</b>
+              <ShariaBadge symbol={r.ticker} />
               {r.rating ? <span className={`vchip ${RATING[r.rating]?.tone ?? "none"}`}>{lang === "ar" ? RATING[r.rating]?.ar : RATING[r.rating]?.en}</span> : <span className="muted">{r.status}</span>}
               <span style={{ flex: 1 }} />
               <button className="ghost btn" onClick={() => onOpen(r.session_id)}>{t.view}</button>

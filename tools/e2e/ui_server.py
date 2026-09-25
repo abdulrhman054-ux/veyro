@@ -9,7 +9,7 @@ sys.path.insert(0, ROOT + "/backend")
 import runpy
 from veyro import market
 P = {"AAPL": 210.0, "MSFT": 420.0, "NVDA": 130.0, "KO": 68.0, "PG": 165.0, "SPY": 560.0, "2222.SR": 27.5, "2280.SR": 55.0,
-     "7010.SR": 42.0, "1120.SR": 95.0, "1211.SR": 50.0, "USDSAR=X": 3.75, "SARUSD=X": 0.2667}
+     "7010.SR": 42.0, "1120.SR": 95.0, "1211.SR": 50.0, "JPM": 200.0, "USDSAR=X": 3.75, "SARUSD=X": 0.2667}
 def last_price(t):
     if t not in P: return None
     return {"price": P[t], "currency": "SAR" if t.endswith(".SR") or t == "USDSAR=X" else "USD", "as_of": "2026-09-25T15:00:00+00:00", "source": "stub"}
@@ -21,6 +21,18 @@ market.last_price = last_price
 market.history = history
 market.market_status = lambda: {"open": True, "status": "open", "source": "stub"}
 market.search = lambda q, limit=8: [{"symbol": "2222.SR", "name": "Saudi Aramco", "exchange": "Tadawul", "type": "EQUITY", "source": "Veyro"}] if "ر" in q or "ar" in q.lower() else [{"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "type": "EQUITY", "source": "stub"}]
+# optional Sharia screen: sample fundamentals (Yahoo is blocked here). stc is given 45% debt so it fails AAOIFI's 30%.
+from veyro import sharia
+def _co(ind, **kw):
+    d = {"quote_type": "EQUITY", "industry": ind, "summary": "", "currency": "USD", "financial_currency": "USD", "fx": 1.0,
+         "market_cap": 1000.0, "avg_market_cap_36m": 1000.0, "total_assets": 1000.0, "total_debt": 100.0, "cash_st": 100.0,
+         "receivables": 50.0, "revenue": 400.0, "interest_income": 4.0, "bs_date": "2026-06-30", "fetched_at": "2026-09-25T00:00:00+00:00"}
+    d.update(kw); return d
+FUND = {"AAPL": _co("Consumer Electronics"), "MSFT": _co("Software - Infrastructure"), "NVDA": _co("Semiconductors"),
+        "KO": _co("Beverages - Non-Alcoholic"), "PG": _co("Household & Personal Products"), "JPM": _co("Banks - Diversified"),
+        "2280.SR": _co("Packaged Foods"), "1211.SR": _co("Other Industrial Metals & Mining"), "2222.SR": _co("Oil & Gas Integrated"),
+        "7010.SR": _co("Telecom Services", total_debt=450.0), "1120.SR": _co("Banks - Regional"), "1180.SR": _co("Banks - Diversified")}
+sharia.fetch_raw = lambda s: FUND.get(s) or {"error": "unavailable", "fetched_at": "2026-09-25T00:00:00+00:00"}
 # slow the fake model a little so animations/stop can be observed
 from tests import fake_llm
 _orig = fake_llm.FakeChat._generate

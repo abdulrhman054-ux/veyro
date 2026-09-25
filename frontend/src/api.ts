@@ -47,6 +47,7 @@ export type Settings = {
   spend?: { month: string; spent: number; sessions: number; unpriced_sessions: number; cap: number | null };
   team: { analysts: string[]; debate_rounds: number; risk_rounds: number };
   data_keys: Record<"fred" | "alpha_vantage" | "typesafe", { present: boolean; masked: string | null }>;
+  sharia?: { enabled: boolean; method: string; hide: boolean; methods?: Record<string, { ar: string; en: string }> };
 };
 export type History = { available: boolean; ticker?: string; dates?: string[]; closes?: number[]; source?: string };
 export type PriceInfo = { price: number | null; spy: number | null; as_of: string | null; source: string | null };

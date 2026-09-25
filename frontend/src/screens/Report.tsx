@@ -8,6 +8,7 @@ import { useVerdictText } from "../office/verdictText";
 import { ProposeButton } from "../exec/OrderTicket";
 import { KeyFigures, TeamAndMemory } from "./FrameworkPanels";
 import { PageHeader } from "../components/PageHeader";
+import { ShariaPanel } from "../extras/Sharia";
 import { AskTeam, StarButton } from "../assistant/Assistant";
 import { BudgetPlan } from "../office/BudgetPlan";
 import { Glossed } from "../extras/Glossary";
@@ -111,6 +112,7 @@ function ReportBody({ s, missing }: { s: SessionFull | null; missing: boolean })
           {prefs.showCost && <Fact label={t.actualCost} value={<span className="pixel ltr">{demo ? t.free : s.cost_usd != null ? fmtUsd(s.cost_usd, lang, 3) : t.unknownPrice}</span>}
             note={s.provider ? `${s.provider} · ${s.quick_model} / ${s.deep_model}` : undefined} />}
         </div>
+        {!demo && <ShariaPanel symbol={s.ticker} />}
         <div className="row" style={{ gap: 10 }}>
           {s.rating && <ProposeButton sessionId={s.id} ticker={s.ticker} rating={s.rating} demo={demo} />}
           <span className="muted" style={{ fontSize: 13 }}>{v?.disclaimer ?? t.disclaimer}</span>
