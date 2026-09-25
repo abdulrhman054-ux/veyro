@@ -735,3 +735,10 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
 .settings-jump { gap: 6px; flex-wrap: wrap; }
 .settings-jump a { text-decoration: none; color: inherit; cursor: pointer; }
 @media (min-width: 1181px) { .settings-jump { display: none; } }
+
+/* The header stays reachable while a long screen is scrolled (wide screens only: on a phone it wraps into
+   several rows and would cover too much). The Report's section menu sticks just under it. */
+@media (min-width: 900px) {
+  .topbar { position: sticky; top: 0; z-index: 60; background: var(--page); padding-block: 8px; box-shadow: 0 6px 12px -10px rgba(40,28,20,.35); }
+  .report-nav { top: var(--topbar-h, 0px); }
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { setShariaConf } from "./extras/Sharia";
 import { api, type Settings } from "./api";
 import { click, unlockAudio } from "./audio";
@@ -42,6 +42,7 @@ function Shell() {
   const [seen, setSeen] = useState<Set<Screen>>(() => new Set<Screen>(["office"]));
   useEffect(() => { setSeen((v) => (v.has(screen) ? v : new Set(v).add(screen))); }, [screen]);
   const [reportId, setReportId] = useState<string | null>(null);
+  const reportRef = useRef<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [market, setMarket] = useState<{ open: boolean | null; markets?: Record<"sa" | "us", { open: boolean; holidays_known: boolean }> } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,7 +55,7 @@ function Shell() {
   useEffect(() => { setShariaConf(settings?.sharia); }, [settings]);
   // "Run it now" in Settings (and other places) ask the shell to follow a scan in the Office.
   useEffect(() => {
-    const f = (e: Event) => { const id = (e as CustomEvent<string>).detail; if (id) { setPendingScan({ id, nonce: Date.now() }); setScreen("office"); } };
+    const f = (e: Event) => { const id = (e as CustomEvent<string>).detail; if (id) { setPendingScan({ id, nonce: Date.now() }); switchTo("office"); } };
     window.addEventListener("veyro:follow-scan", f);
     return () => window.removeEventListener("veyro:follow-scan", f);
   }, []);
@@ -63,8 +64,32 @@ function Shell() {
     load(); const h = setInterval(load, 60_000); return () => clearInterval(h);
   }, []);
 
-  const go = (s: Screen) => { click(); unlockAudio(); setScreen(s); window.scrollTo(0, 0); };
-  const openReport = useCallback((id: string) => { setReportId(id); setScreen("report"); }, []);
+  // Each screen stays mounted and keeps its own scroll position: leaving remembers it, coming back restores it
+  // (a screen seen for the first time starts at the top).
+  const scrollOf = useRef<Partial<Record<Screen, number>>>({});
+  const current = useRef<Screen>(screen);
+  const switchTo = useCallback((s: Screen) => {
+    scrollOf.current[current.current] = window.scrollY;
+    current.current = s;
+    setScreen(s);
+  }, []);
+  useLayoutEffect(() => { window.scrollTo(0, scrollOf.current[screen] ?? 0); }, [screen]);
+  // the sticky header's height, so sticky bars inside screens (the Report's section menu) sit just under it
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const set = () => document.documentElement.style.setProperty("--topbar-h",
+      getComputedStyle(el).position === "sticky" ? `${el.offsetHeight}px` : "0px");
+    const ro = new ResizeObserver(set); ro.observe(el); set();
+    window.addEventListener("resize", set);
+    return () => { ro.disconnect(); window.removeEventListener("resize", set); };
+  }, []);
+  const go = (s: Screen) => { click(); unlockAudio(); switchTo(s); };
+  const openReport = useCallback((id: string) => {
+    if (id !== reportRef.current) scrollOf.current.report = 0;   // another session's report starts at the top
+    reportRef.current = id; setReportId(id); switchTo("report");
+  }, [switchTo]);
   const onBusy = useCallback((b: boolean) => setBusy(b), []);
   // After a run ends, refresh settings so this month's spend (budget cap) is current.
   const wasBusy = useRef(false);
@@ -78,7 +103,7 @@ function Shell() {
 
   return (
     <div className="app">
-      <header className="topbar">
+      <header className="topbar" ref={headerRef}>
         <button className="brand" onClick={() => go("office")} aria-label={t.brand}>
           {LEAF}
           <span style={{ textAlign: "start" }}><b>{t.brand}</b><small>{t.tagline}</small></span>
