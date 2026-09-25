@@ -165,17 +165,21 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
   const scanIdx = scan ? scan.sessions.indexOf(sessionId ?? "") : -1;
   useEffect(() => {
     if (!scan || scanIdx < 0 || scan.stopped) return;
-    const nextSid = scan.sessions[scanIdx + 1];
+    // the next stock that has a session (a skipped one has none)
+    const nextIdx = scan.sessions.findIndex((x, j) => j > scanIdx && !!x);
+    const nextSid = nextIdx > 0 ? scan.sessions[nextIdx] : undefined;
     if (finishedShowing && nextSid) {
-      const h = window.setTimeout(() => { setSessionId(nextSid); setStarting(`${scan.tickers[scanIdx + 1]} · ${scanIdx + 2}/${scan.tickers.length}`); startJingle(); }, 4500);
+      const h = window.setTimeout(() => { setSessionId(nextSid); setStarting(`${scan.tickers[nextIdx]} · ${nextIdx + 1}/${scan.tickers.length}`); startJingle(); }, 4500);
       return () => clearTimeout(h);
     }
   }, [scan, scanIdx, finishedShowing]);
 
-  const firstScanSession = scan?.sessions[0];
+  // the first stock that got a session (the first one may have been skipped)
+  const firstIdx = scan ? scan.sessions.findIndex((x) => !!x) : -1;
+  const firstScanSession = firstIdx >= 0 ? scan?.sessions[firstIdx] : undefined;
   useEffect(() => {
     if (!scan || scan.stopped || !firstScanSession || scan.sessions.includes(sessionId ?? "")) return;   // stopped before it began
-    setSessionId(firstScanSession); setStarting(`${scan.tickers[0]} · 1/${scan.tickers.length}`); startJingle();
+    setSessionId(firstScanSession); setStarting(`${scan.tickers[firstIdx]} · ${firstIdx + 1}/${scan.tickers.length}`); startJingle();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [firstScanSession]);
 
@@ -275,6 +279,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
             if (ev.type === "scan_ranked") return { ...s, ranking: ev.ranking };
             if (ev.type === "end") return { ...s, done: true };
             if ((ev as { type: string }).type === "scan_capped") return { ...s, capped: true };
+            if ((ev as { type: string }).type === "scan_skipped") return { ...s, results: { ...s.results, [(ev as unknown as { index: number }).index]: "SKIPPED" } };
             return s;
           });
         });
@@ -311,6 +316,7 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
         if (ev.type === "scan_result") return { ...s, results: { ...s.results, [ev.index]: ev.rating } };
         if (ev.type === "scan_ranked") return { ...s, ranking: ev.ranking };
         if (ev.type === "end") return { ...s, done: true };
+        if ((ev as { type: string }).type === "scan_skipped") return { ...s, results: { ...s.results, [(ev as unknown as { index: number }).index]: "SKIPPED" } };
         return s;
       }));
     }).catch(() => {});
@@ -651,7 +657,8 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
                   return (
                     <li key={tk} style={{ outline: on ? "3px solid var(--orange)" : "none" }}>
                       <b className="pixel ltr" style={{ minWidth: 60 }}>{tk}</b>
-                      {r ? <span className={`vchip ${RATING[r]?.tone ?? "none"}`}>{lang === "ar" ? RATING[r]?.ar : RATING[r]?.en}</span>
+                      {r === "SKIPPED" ? <span className="muted" style={{ fontSize: 12 }} data-skipped>{lang === "ar" ? "⏭ تخطّيناه: تحليله السابق الموقوف ما خلّص آخر خطوة" : "⏭ skipped: its stopped earlier run is still finishing"}</span>
+                        : r ? <span className={`vchip ${RATING[r]?.tone ?? "none"}`}>{lang === "ar" ? RATING[r]?.ar : RATING[r]?.en}</span>
                         : <span className="muted">{on ? t.nowAnalyzing : "…"}</span>}
                       {reused && <span className="muted" style={{ fontSize: 12 }}>{lang === "ar" ? "♻ من تحليل اليوم" : "♻ from today"}</span>}
                     </li>

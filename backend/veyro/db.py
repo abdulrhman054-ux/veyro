@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS paper (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticker TEXT NOT NULL, shares REAL NOT NULL, entry_price REAL NOT NULL, currency TEXT,
   bench TEXT, bench_entry REAL, opened_at TEXT NOT NULL, session_id TEXT, rating TEXT,
-  closed_at TEXT, exit_price REAL, bench_exit REAL, fee_in REAL, fee_out REAL, fx_usd_entry REAL
+  closed_at TEXT, exit_price REAL, bench_exit REAL, fee_in REAL, fee_out REAL, fx_usd_entry REAL, fx_usd_exit REAL
 );
 CREATE TABLE IF NOT EXISTS sharia_cache (      -- optional Sharia screen: raw free fundamentals per symbol, with the fetch date
   symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL
@@ -105,7 +105,7 @@ def conn() -> sqlite3.Connection:
             if "bench_exit" not in pcols:   # virtual portfolio from an earlier build
                 _conn.execute("ALTER TABLE paper ADD COLUMN bench_exit REAL")
                 _conn.commit()
-            for col in ("fee_in", "fee_out", "fx_usd_entry"):   # fees and currency, added in the 2026-09 review
+            for col in ("fee_in", "fee_out", "fx_usd_entry", "fx_usd_exit"):   # fees and currency, added in the 2026-09 review
                 if col not in pcols:
                     _conn.execute(f"ALTER TABLE paper ADD COLUMN {col} REAL")
                     _conn.commit()

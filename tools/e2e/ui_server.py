@@ -84,5 +84,14 @@ def fake_stream(self):
         time.sleep(0.4)
 live.LiveHub._stream_loop = fake_stream
 live.LiveHub._snapshot = lambda self, syms: None
+# "STUCK": its earlier stopped run never finishes winding down, so a scan must skip it and go on
+from veyro import runner as _runner
+_orig_start = _runner.start_session
+def _start(loop, ticker, *a, **k):
+    if ticker.upper() == "STUCK":
+        raise _runner.StillStopping()
+    return _orig_start(loop, ticker, *a, **k)
+_runner.start_session = _start
+_runner.SKIP_WAIT_STEPS = 3
 sys.argv = ["verify_server.py"]
 runpy.run_path(ROOT + "/backend/tests/verify_server.py", run_name="__main__")

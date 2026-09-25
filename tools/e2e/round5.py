@@ -107,6 +107,35 @@ with sync_playwright() as p:
     check("estimate shrinks when economy analyses only the best 2", bool(before) and before != after, f"{before} → {after}")
     ctx.close()
 
+    # round 5: a scan skips a stock whose stopped run is still finishing, says so, and goes on to the next one
+    ctx = b.new_context(viewport={"width": 1440, "height": 950}, locale="en-US")
+    ctx.add_init_script("localStorage.setItem('veyro.welcomed','1');")
+    page = ctx.new_page(); page.on("pageerror", lambda e: errors.append(str(e)))
+    page.goto(BASE); page.wait_for_timeout(1200)
+    page.locator(".seg button").nth(2).click()
+    d = page.locator(".startbar label.check input[type=checkbox]").last
+    if d.is_checked(): d.uncheck()
+    if page.locator(".picklist button.linkish").count(): page.locator(".picklist button.linkish").click()   # clear the defaults
+    for x in list(page.locator(".picklist .chip.pick .x").all()): x.click()
+    add = page.locator(".tsearch input").first
+    for tk in ("STUCK", "KO"):
+        add.fill(tk); add.press("Enter"); page.wait_for_timeout(150)
+    page.locator("label.budget input").fill("")
+    page.locator(".startbar button.primary").click(); page.wait_for_timeout(500)
+    if page.locator("[role=alertdialog] button.primary").count(): page.locator("[role=alertdialog] button.primary").first.click()
+    t0 = time.time()
+    while time.time() - t0 < 240 and not (page.locator("main > div:not([hidden]) .verdict-box").count() and page.locator(".side [data-skipped]").count()):
+        if page.locator("button.dlg").count():
+            try: page.locator("button.dlg").first.click(timeout=500)
+            except Exception: pass
+        time.sleep(0.3)
+    sk = page.locator(".side [data-skipped]")
+    check("scan: a still-stopping stock is skipped with the reason, and the next one is analysed",
+          sk.count() == 1 and "skipped" in sk.inner_text() and page.locator("main > div:not([hidden]) .verdict-box").count() == 1,
+          sk.inner_text() if sk.count() else "")
+    page.screenshot(path=OUT + "r5_scan_skip.png", full_page=True)
+    ctx.close()
+
     # 10. phone: the dialogue box is full width from the first letter (it used to grow sideways while typing)
     ctx = b.new_context(viewport={"width": 390, "height": 844}, locale="en-US")
     ctx.add_init_script("localStorage.setItem('veyro.welcomed','1');")

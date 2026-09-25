@@ -456,7 +456,7 @@ def test_same_stock_same_day_attaches_instead_of_a_second_run(monkeypatch):
     runner.ACTIVE_STREAMS.pop(id(runner.CANCEL[a]))
     gate.set()
     t0 = time.time()
-    while not runner.BUSES[a].closed and time.time() - t0 < 5:
+    while (not runner.BUSES[a].closed or a in runner.WORKERS) and time.time() - t0 < 5:   # its worker has returned
         time.sleep(0.05)
     c = runner.start_session(loop, "ZZZ", "en", False)
     assert c != a

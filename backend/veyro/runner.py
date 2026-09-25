@@ -351,6 +351,9 @@ class Emitter:
     def __init__(self, bus: Bus, cancel: threading.Event | None = None):
         self.bus = bus
         self.cancel = cancel
+        # Set (under STATUS_LOCK) the moment the verdict is recorded: from then on its events are always shown,
+        # even if Stop lands while the verdict job is still returning them.
+        self.verdict_in = threading.Event()
         self.q: queue.Queue = queue.Queue()
         self.t = threading.Thread(target=self._run, daemon=True)
         self.t.start()
@@ -373,6 +376,11 @@ class Emitter:
                         except FutureTimeout:
                             pass
                     if self.cancel is not None and self.cancel.is_set():
+                        if not item.done() and self.verdict_in.is_set():
+                            try:
+                                item.result(timeout=30)   # recorded already: it is only returning its events
+                            except Exception:  # noqa: BLE001
+                                pass
                         evs = item.result() if item.done() and not item.cancelled() and not item.exception() else None
                         if not (isinstance(evs, list) and any(e.get("type") == "verdict" for e in evs)):
                             item.cancel()
@@ -696,8 +704,22 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                 for node, text in replay:
                     stop_point()   # replaying a resumed run's finished lines costs voice calls: stop at once
                     if text:
-                        started(NODE_CHARACTER[node], node)
-                        speak(NODE_CHARACTER[node], node, text)
+                        ch = NODE_CHARACTER[node]
+                        started(ch, node)
+                        again = prior_lines(sid, ticker, trade_date, node, text, lang)
+                        if again is None:
+                            speak(ch, node, text)
+                            continue
+                        # already voiced before the Stop: show the same lines again, no new model calls
+                        last_said[node] = text
+                        for r in again:
+                            seq += 1
+                            tid = db.add_turn(sid, seq, ch, node, r["detail_en"], r["line"] if lang == "ar" else None,
+                                              r["line"] if lang == "en" else None)
+                            em.put({"type": "agent_message", "character": ch, "node": node, "turn_id": tid, "text": r["line"],
+                                    "lang": lang, "texts": {lang: r["line"]}})
+                        em.put({"type": "agent_done", "character": ch, "node": node})
+                        active.discard(ch)
             stop_point()
             stream = _cancellable(lambda: ta.graph.stream(ta.checkpoint_input(init), **args), ta.config, cancel)
             for mode, chunk in stream:
@@ -794,6 +816,7 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                               price_at_verdict=px["price"], spy_at_verdict=px["spy"], price_time=px["as_of"],
                               price_source=px["source"], usage_json=__import__("json").dumps(usage),
                               cost_usd=usage["cost_usd"])
+            em.verdict_in.set()
         return [{"type": "agent_message", "character": "Leo", "node": "Portfolio Manager", "turn_id": tid,
                  "text": v["line"], "lang": lang, "texts": {lang: v["line"]}},
                 {"type": "verdict", **verdict, "price": px, "benchmark": bench, "disclaimer": DISCLAIMER[lang]},
@@ -803,6 +826,21 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
 
     em.put(pool.submit(verdict_job))
     pool.shutdown(wait=False)
+
+
+def prior_lines(sid: str, ticker: str, trade_date: str, node: str, text: str, lang: str) -> list[dict] | None:
+    """Lines the stopped run of this analysis already voiced for `node`, when a resumed run replays the same work:
+    the run that was stopped (same stock and date), the same source text, and a line in this language. None when
+    any of them is missing, so the caller voices it afresh."""
+    col = "voice_ar" if lang == "ar" else "voice_en"
+    prev = db.q1("SELECT id FROM sessions WHERE id<>? AND ticker=? AND trade_date=? AND mode='real' AND status IN ('cancelled','error') "
+                 "ORDER BY created_at DESC LIMIT 1", (sid, ticker, trade_date))
+    if not prev:
+        return None
+    rows = db.q(f"SELECT character, node, detail_en, {col} AS line FROM turns WHERE session_id=? AND node=? ORDER BY seq", (prev["id"], node))
+    if not rows or any(not r["line"] or r["detail_en"].strip() not in text for r in rows):
+        return None
+    return rows
 
 
 class _Cancelled(Exception):
@@ -835,12 +873,13 @@ class _CancellableStream:
                 with self.lock:
                     self.finished = True
                     fn = self.cleanup
-                ACTIVE_STREAMS.pop(id(cancel), None)
-                if fn:
-                    try:
-                        fn()
-                    except Exception:  # noqa: BLE001
-                        pass
+                try:
+                    if fn:
+                        fn()   # closes the checkpoint: the run key stays busy until this is done
+                except Exception:  # noqa: BLE001
+                    pass
+                finally:
+                    ACTIVE_STREAMS.pop(id(cancel), None)
         self.t = threading.Thread(target=work, daemon=True, name="graph-stream")
         self.t.start()
 
@@ -989,13 +1028,18 @@ class StillStopping(Exception):
     """The previous run of this stock is still finishing its last step after Stop."""
 
 
+WORKERS: set[str] = set()   # sessions whose worker thread (start-up, framework, voice, verdict) hasn't returned yet
+
+
 def _key_busy(sid: str) -> str | None:
-    """'running', 'stopping' or None for an earlier session holding a run key."""
+    """'running', 'stopping' or None for an earlier session holding a run key. A stopped run stays 'stopping'
+    until its worker has returned and any framework step it left running has closed the checkpoint, including
+    a Stop during start-up before the framework stream exists."""
     bus, cancel = BUSES.get(sid), CANCEL.get(sid)
-    stream = ACTIVE_STREAMS.get(id(cancel)) if cancel is not None else None
     if bus is not None and not bus.closed and not (cancel is not None and cancel.is_set()):
         return "running"
-    if stream is not None and not stream.finished:
+    stopped = cancel is not None and cancel.is_set()   # a finished run already cleared its checkpoint
+    if stopped and (sid in WORKERS or id(cancel) in ACTIVE_STREAMS):
         return "stopping"
     return None
 
@@ -1043,6 +1087,7 @@ def start_session(loop: asyncio.AbstractEventLoop, ticker: str, lang: str, demo:
                       None if demo else provider, None if demo else quick, None if demo else deep, lang, scan_id)
     BUSES[sid] = Bus(loop)
     CANCEL[sid] = threading.Event()
+    WORKERS.add(sid)
     t = threading.Thread(target=_guarded, args=(sid, ticker, lang, demo, trade_date, budget), daemon=True, name=f"session-{sid}")
     t.start()
     if wait:
@@ -1051,10 +1096,14 @@ def start_session(loop: asyncio.AbstractEventLoop, ticker: str, lang: str, demo:
 
 
 def _guarded(sid, ticker, lang, demo, trade_date=None, budget=None):
-    run_session(sid, ticker, lang, demo, trade_date, budget)
+    try:
+        run_session(sid, ticker, lang, demo, trade_date, budget)
+    finally:
+        WORKERS.discard(sid)
 
 
 SCAN_BUSES: dict[str, Bus] = {}
+SKIP_WAIT_STEPS = 400   # × 0.3 s: how long a scan waits for a stopped run of the same stock to finish
 SCAN_CANCEL: dict[str, threading.Event] = {}
 
 
@@ -1102,7 +1151,7 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
                 db.set_setting(f"scan_extra:{scan_id}", (db.get_setting(f"scan_extra:{scan_id}") or []) + [sid])
             else:
                 sid = None
-                for _ in range(400):   # the same stock's stopped run is finishing its last step: wait for it
+                for _ in range(SKIP_WAIT_STEPS):   # the same stock's stopped run is finishing its last step: wait for it
                     try:
                         sid = start_session(loop, t, lang, demo, scan_id=scan_id, budget=budget)
                         break
@@ -1113,7 +1162,10 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
                 if sid is None:
                     if stop.is_set():
                         break
-                    raise StillStopping()
+                    # An earlier stopped run of this stock is still finishing its last model step: skip this one
+                    # stock rather than failing (and cancelling) the whole scan.
+                    bus.publish({"type": "scan_skipped", "index": i, "ticker": t, "reason": "still_stopping"})
+                    continue
                 if (db.get_session(sid) or {}).get("scan_id") != scan_id:
                     # Someone else's run of the same analysis: count it as this scan's result, and never stop it.
                     joined.add(sid)

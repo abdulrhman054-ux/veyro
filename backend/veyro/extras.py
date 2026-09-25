@@ -150,11 +150,13 @@ def paper_close(pid: int) -> dict:
         px = market.last_price(row["ticker"])
         if not px:
             raise ValueError("no_price")   # never book an invented exit price
+        from .allocation import fx
         b = market.last_price(row["bench"]) if row["bench"] else None
-        # the index is frozen at the same moment as the stock, so a closed position's alpha stops moving
+        cur = row["currency"] or "USD"
+        # the index and the exchange rate are frozen at the same moment as the stock, so a closed position stops moving
         with db.tx() as c:
-            c.execute("UPDATE paper SET closed_at=?, exit_price=?, bench_exit=?, fee_out=? WHERE id=?",
-                      (db.now(), px["price"], b["price"] if b else None,
+            c.execute("UPDATE paper SET closed_at=?, exit_price=?, bench_exit=?, fx_usd_exit=?, fee_out=? WHERE id=?",
+                      (db.now(), px["price"], b["price"] if b else None, 1.0 if cur == "USD" else fx(cur, "USD"),
                        _fee(row["ticker"], px["price"] * row["shares"] * market.split_factor(row["ticker"], row["opened_at"])), pid))
     return paper_view()
 
@@ -216,7 +218,8 @@ def paper_view() -> dict:
         if r["bench_ret"] is not None:
             t["bench_weighted"] += r["cost"] * r["bench_ret"]
             t["bench_cost"] += r["cost"]
-        fx_in, fx_now = r.get("fx_usd_entry") or (1.0 if cur == "USD" else None), fx(cur, "USD")
+        fx_in = r.get("fx_usd_entry") or (1.0 if cur == "USD" else None)
+        fx_now = (r.get("fx_usd_exit") if r["closed_at"] and r.get("fx_usd_exit") else None) or (1.0 if cur == "USD" else fx(cur, "USD"))
         if fx_in and fx_now and r["value"] is not None:
             usd["cost"] += r["cost"] * fx_in
             usd["value"] += r["value"] * fx_now

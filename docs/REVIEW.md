@@ -310,6 +310,7 @@ All ten were built in the second round except #4, which the owner decided agains
 
 Totals after round 3: pytest **42 → 138**, browser checks **31 → 91**, 0 failures in the last full run of `tools/e2e/run_all.sh`.
 Round 4: pytest **158** (5 Saudi scan + 15 review fixes); browser checks **92 + 26 + 9 = 127**, 0 failures in the full run of `tools/e2e/run_all.sh` (9 suites).
+Round 5: pytest **164**; browser checks **128** (FINAL_E2E_5).
 
 ## Round 3 (owner requests)
 
@@ -376,9 +377,11 @@ Two independent reviews of everything changed on this branch (backend and fronte
 - Bruno walks into the risk room and says **«ورع، لا تشتري هذا!»** when the risk team clearly warns, and again at a Sell call.
 - The tests also check the cases where Bruno must stay quiet: never at a Buy or Hold call, and never for a risk line that isn't a clear warning.
 
-**Deliberately not fixed** (low impact, larger change; INFERRED):
-- a scan can fail if an earlier stopped run of the same stock takes more than 2 minutes to finish its last step;
-- a very narrow Stop-versus-verdict race;
-- a closed position's USD value uses today's exchange rate (tiny for SAR, which is pegged);
-- a resumed run pays again to voice lines it already had;
-- a joined run keeps the language of whoever started it.
+**Left for later in round 4, then fixed in round 5** (owner: «اصلح المؤجلة كمان»). Each has a test that failed on the code before (`backend/tests/test_round5_backend.py`, 6; `round5.py`, 1 more browser check):
+- A scan waited 2 minutes for a stopped run of the same stock and then **failed and cancelled the whole scan**. Now it skips that one stock, says why in the scan list ("⏭ skipped: its stopped earlier run is still finishing"), and goes on. It also works when the skipped stock is the first one.
+- Stop versus verdict: if the verdict had just been recorded and Stop landed while its events were being returned, the screen said "cancelled" while History showed the verdict. A recorded verdict is now always shown.
+- A Stop during start-up (before the framework stream exists) freed the run lock at once. A stream also left the busy list before closing its checkpoint. In both cases a new run could open the same checkpoint. A stopped run now stays "stopping" until its worker has returned and the checkpoint is closed.
+- A closed Saudi position's US-dollar value moved with today's exchange rate. The rate is now frozen at the sale.
+- Resuming a stopped run paid again to voice the steps it had already voiced. It now shows the same lines again with no model calls when the source text matches, including the debate, which replays as its whole history. A line missing in this language is voiced as before.
+- A joined run's language: **already handled**. The screen asks for each line in the viewer's language (`useLineText`), a small translation per line, far cheaper than a second full run. Nothing changed.
+
