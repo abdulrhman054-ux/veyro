@@ -304,9 +304,12 @@ All ten were built in the second round except #4, which the owner decided agains
 | e2e `round4` | — | — | 14 | 19 (value mode, US and Saudi) |
 | e2e `persist` | — | — | — | 12 (every screen keeps its state) |
 | e2e `stop` | — | — | — | 9 (Stop is immediate) |
+| e2e `fun` | — | — | — | — (round 4: 26, easter eggs and label overlap) |
+| e2e `round5` | — | — | — | — (round 4: 9, frontend review fixes) |
 | TypeScript `tsc --noEmit` and `npm run build` | OK | OK | OK | OK |
 
-Totals: pytest **42 → 138**, browser checks **31 → 91**, 0 failures in the last full run of `tools/e2e/run_all.sh`.
+Totals after round 3: pytest **42 → 138**, browser checks **31 → 91**, 0 failures in the last full run of `tools/e2e/run_all.sh`.
+Round 4: pytest **158** (5 Saudi scan + 15 review fixes); browser checks **92 + 26 + 9 = 127** (FINAL_E2E).
 
 ## Round 3 (owner requests)
 
@@ -359,6 +362,10 @@ Two independent reviews of everything changed on this branch (backend and fronte
 | 8 | Live → Analyse returned to the Office's old scroll spot | **Not reproduced**: the search box's focus already scrolls to the top. A safeguard was kept |
 | 9 | Hidden (non-compliant) scan candidates still counted in the estimate; a scan stopped before its first session still jumped into it; the US clock went grey when Yahoo was down; a past-date verdict said "market closed"; a Sharia badge could stay on "checking"; late answers could overwrite a newer choice (beginner picks, screener preview) | Fixed by reading both sides (INFERRED; no browser check) |
 | 10 | Desktop: the error screen could open in the hidden main window while the splash spun forever; a timeout's exit replaced the real cause; taskkill could hit a PID Windows had reused | Error shown in the visible window; one error screen; no taskkill after the process has exited. **UNVERIFIED**: Electron on Windows can't run here |
+
+**Checked and not reproduced** (measured in the browser, nothing changed):
+- The one-row header overflowing at 1260 px in Arabic. Measured at 900, 1100, 1259, 1260, 1300 and 1440 px in both languages: no horizontal scroll and no item outside the header.
+- The verdict box being clipped with the Sharia panel and track record. With the screen on, a Buy on 7010.SR at 1440 and 1100 px has its bottom 14–15 px inside the stage, and the disclaimer is visible.
 
 **Owner's layout report:** Bolt's horns covered Buzz's role label and Bruno's head covered Leo's. A check of every name and role label against every other character's sprite found 5 overlaps in the old layout (Ollie, Buzz, Pip, Benny and Leo each had a label covered). The back row now sits 20 px lower and labels are drawn above characters: 0 overlaps in Arabic and English.
 
