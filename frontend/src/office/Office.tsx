@@ -144,7 +144,9 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
 
   useEffect(() => { api.get<{ screeners: Record<string, { ar: string; en: string }> }>("/api/market/screeners").then((r) => setScreeners(r.screeners)).catch(() => {}); }, []);
 
-  const running = !!sessionId && (!state.ended || !!state.current || state.queue.length > 0) || (!!scan && !scan.done);
+  // A stopped run is over at once: Leo's "stopped" line may still be on screen, but it never holds the controls.
+  const running = !!sessionId && (!state.ended || (state.status !== "cancelled" && (!!state.current || state.queue.length > 0)))
+    || (!!scan && !scan.done && !scan.stopped);
   useEffect(() => { onBusy(running); }, [running, onBusy]);
   useEffect(() => { if (!running) setStopReq(false); }, [running]);
   const finishedShowing = state.ended && !state.current && state.queue.length === 0 && (state.verdictShown || !state.verdict);

@@ -450,6 +450,10 @@ def run_session(sid: str, ticker: str, lang: str, demo: bool, trade_date: str | 
         db.update_session(sid, status="cancelled", finished_at=db.now())
         em.put({"type": "end", "status": "cancelled"})
     except Exception as e:  # noqa: BLE001
+        if cancel.is_set():   # a failure while winding down after Stop is still a stop, not an error
+            db.update_session(sid, status="cancelled", finished_at=db.now()) if (db.get_session(sid) or {}).get("status") == "running" else None
+            em.put({"type": "end", "status": "cancelled"})
+            return
         log.error("session %s crashed: %s", sid, scrub(repr(e)))
         code = classify(e)
         em.put(error_event(code, lang, repr(e)))
@@ -527,6 +531,10 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
         return
     activate_key(provider, key)
 
+    def stop_point():
+        if cancel.is_set():
+            raise _Cancelled()   # Stop during start-up: don't go on fetching data or building the team
+
     # A past date is analysed point-in-time: the framework only lets agents see data up to that day.
     trade_date = trade_date_in or today_for(ticker)
     past = trade_date < today_for(ticker)
@@ -534,11 +542,13 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
     symbol, asset_type = resolve_instrument(ticker)
     analysts = analysts_for(asset_type, team["analysts"])
     bench = usable_benchmark(benchmark_for(symbol))
+    stop_point()
     for dk, env in (("data:fred", "FRED_API_KEY"), ("data:alpha_vantage", "ALPHA_VANTAGE_API_KEY"), ("data:typesafe", "TYPESAFE_API_KEY")):
         v = get_secret(dk)
         if v:
             set_env(env, v)
     pc, pc_broker = portfolio_context(budget)
+    stop_point()
     em.put({"type": "session", "id": sid, "ticker": symbol, "mode": "real", "lang": lang, "trade_date": trade_date,
             "provider": provider, "quick_model": quick, "deep_model": deep,
             "estimate": estimate(provider, quick, deep, team=team, asset_type=asset_type),
@@ -563,7 +573,9 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                 "memory_log_path": str(TA_HOME / "memory" / "trading_memory.md")})
     tracker = UsageTracker()
     TRACKERS[sid] = tracker
+    stop_point()
     ta = TradingAgentsGraph(selected_analysts=tuple(analysts), config=cfg, callbacks=[tracker])
+    stop_point()
     from .voice import Voice
     voice = Voice(provider, quick, callbacks=[tracker])
     pool = ThreadPoolExecutor(max_workers=3)
@@ -667,9 +679,11 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
                           ("Bull Researcher", debate.get("bull_history")), ("Bear Researcher", debate.get("bear_history")),
                           ("Research Manager", done_state.get("investment_plan")), ("Trader", done_state.get("trader_investment_plan"))]
                 for node, text in replay:
+                    stop_point()   # replaying a resumed run's finished lines costs voice calls: stop at once
                     if text:
                         started(NODE_CHARACTER[node], node)
                         speak(NODE_CHARACTER[node], node, text)
+            stop_point()
             stream = _cancellable(lambda: ta.graph.stream(ta.checkpoint_input(init), **args), ta.config, cancel)
             for mode, chunk in stream:
                 if mode == "tasks":
@@ -752,18 +766,19 @@ def _run_real(sid: str, ticker: str, lang: str, em: Emitter, cancel: threading.E
             px = {"price": p0, "spy": b0, "as_of": trade_date, "source": market.SOURCE + " (close)" if p0 else None}
         else:
             px = verdict_price(ticker, bench)
-        if cancel.is_set():
-            return []   # stopped while Leo was speaking: keep the session "cancelled", don't record a verdict
         usage = tracker.summary()
         verdict = {"rating": rating, "line": v["line"], "reason": v["reason"], "conviction": v["conviction"],
                    "lang": lang, "turn_id": tid, "sources": list(sources.values()),
                    "texts": {lang: {"line": v["line"], "reason": v["reason"]}},
                    "sentiment_note": "Social sentiment sources are fetched by the framework's sentiment analyst and cited in its report."}
-        db.update_session(sid, status="done", finished_at=db.now(), rating=rating,
-                          verdict_json=__import__("json").dumps(verdict),
-                          price_at_verdict=px["price"], spy_at_verdict=px["spy"], price_time=px["as_of"],
-                          price_source=px["source"], usage_json=__import__("json").dumps(usage),
-                          cost_usd=usage["cost_usd"])
+        with STATUS_LOCK:   # Stop and the verdict can't both win: whichever comes first decides
+            if cancel.is_set():
+                return []   # stopped while Leo was speaking: keep the session "cancelled", don't record a verdict
+            db.update_session(sid, status="done", finished_at=db.now(), rating=rating,
+                              verdict_json=__import__("json").dumps(verdict),
+                              price_at_verdict=px["price"], spy_at_verdict=px["spy"], price_time=px["as_of"],
+                              price_source=px["source"], usage_json=__import__("json").dumps(usage),
+                              cost_usd=usage["cost_usd"])
         return [{"type": "agent_message", "character": "Leo", "node": "Portfolio Manager", "turn_id": tid,
                  "text": v["line"], "lang": lang, "texts": {lang: v["line"]}},
                 {"type": "verdict", **verdict, "price": px, "benchmark": bench, "disclaimer": DISCLAIMER[lang]},
@@ -1101,11 +1116,25 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
     return scan_id
 
 
+STATUS_LOCK = threading.Lock()
+
+
 def cancel_session(sid: str) -> bool:
+    """Stop now: the session ends for every viewer and in the database at once, whatever the worker is doing
+    (a model call, fetching data at start-up, building the team). The worker notices at its next step and
+    winds down; nothing it produces after this reaches the screen. A verdict already recorded stays."""
     ev = CANCEL.get(sid)
     if not ev:
         return False
-    ev.set()
+    with STATUS_LOCK:
+        ev.set()
+        s = db.get_session(sid)
+        if s and s["status"] == "running":
+            db.update_session(sid, status="cancelled", finished_at=db.now())
+            bus = BUSES.get(sid)
+            if bus is not None and not bus.closed:
+                bus.publish(error_event("cancelled", s["lang"]))
+                bus.publish({"type": "end", "status": "cancelled"})
     return True
 
 

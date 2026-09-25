@@ -550,3 +550,86 @@ def test_exec_routes_refuse_the_dev_server_origin_by_default():
     assert "http://localhost:5173" not in routes.ALLOWED_ORIGINS
     r = _client("127.0.0.1").post("/api/exec/mode", json={"mode": "paper"}, headers={"origin": "http://localhost:5173"})
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------- Stop is immediate in every state
+def _slow_real(monkeypatch, seconds=3.0, fail=False, obey=False):
+    import time
+    from veyro import runner
+
+    def fake_real(sid, ticker, lang, em, cancel, trade_date, budget_):
+        t0 = time.time()
+        while time.time() - t0 < seconds:            # e.g. fetching data / building the team: no Stop check
+            if obey and cancel.is_set():
+                raise runner._Cancelled()
+            time.sleep(0.05)
+        if fail:
+            raise RuntimeError("stream closed")
+        em.put({"type": "agent_message", "character": "Ollie", "text": "late line"})
+        em.put({"type": "end", "status": "done"})
+    monkeypatch.setattr(runner, "_run_real", fake_real)
+
+
+def _wait(cond, timeout=6.0):
+    import time
+    t0 = time.time()
+    while not cond() and time.time() - t0 < timeout:
+        time.sleep(0.02)
+    return time.time() - t0
+
+
+def test_stop_during_startup_ends_at_once_and_stays_cancelled(monkeypatch):
+    import asyncio
+    import time
+    from veyro import runner
+    _slow_real(monkeypatch, 2.0)
+    sid = runner.start_session(asyncio.new_event_loop(), "STP1", "en", False)
+    time.sleep(0.2)
+    t0 = time.time()
+    r = _client("127.0.0.1").post(f"/api/sessions/{sid}/cancel", headers={"origin": "http://127.0.0.1:8765"})
+    assert r.json()["ok"] and time.time() - t0 < 0.5
+    bus = runner.BUSES[sid]
+    assert bus.closed and bus.events[-1] == {**bus.events[-1], "type": "end", "status": "cancelled"}
+    assert db.get_session(sid)["status"] == "cancelled"
+    _wait(lambda: False, 2.2)                            # the worker finishes its step later...
+    assert db.get_session(sid)["status"] == "cancelled"   # ...and changes nothing
+    assert not any(e.get("text") == "late line" for e in bus.events)
+
+
+def test_stop_then_worker_error_is_still_cancelled(monkeypatch):
+    import asyncio
+    import time
+    from veyro import runner
+    _slow_real(monkeypatch, 0.5, fail=True)
+    sid = runner.start_session(asyncio.new_event_loop(), "STP2", "en", False)
+    time.sleep(0.1)
+    runner.cancel_session(sid)
+    _wait(lambda: False, 0.8)
+    assert db.get_session(sid)["status"] == "cancelled" and not db.get_session(sid).get("error")
+
+
+def test_stop_after_the_verdict_is_recorded_keeps_the_verdict(monkeypatch):
+    import asyncio
+    from veyro import runner
+    db.create_session("vdone", "AAPL", "2026-09-25", "real", "anthropic", "q", "d", "en")
+    db.update_session("vdone", status="done", rating="Buy")
+    runner.BUSES["vdone"] = runner.Bus(asyncio.new_event_loop())
+    runner.CANCEL["vdone"] = __import__("threading").Event()
+    runner.cancel_session("vdone")
+    assert db.get_session("vdone")["status"] == "done" and not runner.BUSES["vdone"].events
+
+
+def test_stop_a_scan_is_immediate_too(monkeypatch):
+    import asyncio
+    import time
+    from veyro import runner
+    _slow_real(monkeypatch, 5.0, obey=False)
+    scan_id = runner.start_scan(asyncio.new_event_loop(), "watchlist", ["SC1", "SC2", "SC3"], None, None, "en", False)
+    bus = runner.SCAN_BUSES[scan_id]
+    _wait(lambda: any(e["type"] == "scan_session" for e in bus.events), 3)
+    t0 = time.time()
+    runner.SCAN_CANCEL[scan_id].set()
+    waited = _wait(lambda: bus.closed, 3)
+    assert bus.closed and waited < 1.0, waited
+    assert [e["ticker"] for e in bus.events if e["type"] == "scan_session"] == ["SC1"]   # nothing more started
+    assert db.get_scan(scan_id)["status"] == "cancelled"
