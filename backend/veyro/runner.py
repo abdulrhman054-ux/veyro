@@ -939,6 +939,18 @@ def start_scan(loop: asyncio.AbstractEventLoop, kind: str, tickers: list[str], s
     stop = SCAN_CANCEL[scan_id] = threading.Event()
 
     def work():
+        try:
+            run()
+        except Exception as e:  # noqa: BLE001
+            # e.g. "database is locked": never leave the scan "running" with its viewers waiting forever
+            log.error("scan %s failed: %s", scan_id, scrub(repr(e)))
+            for sid in [e2["session_id"] for e2 in bus.events if e2["type"] == "scan_session"]:
+                cancel_session(sid)
+            db.update_scan(scan_id, status="error")
+            bus.publish(error_event(classify(e), lang, repr(e)))
+            bus.publish({"type": "end", "status": "error"})
+
+    def run():
         bus.publish({"type": "scan", "id": scan_id, "kind": kind, "screener": screener, "tickers": tickers,
                      "source": source})
         for i, t in enumerate(tickers):

@@ -189,3 +189,18 @@ def test_stop_after_verdict_recorded_still_shows_the_verdict():
     em.put(f)
     em.close()
     assert [e["type"] for e in bus.events] == ["verdict", "end"]
+
+
+def test_scan_that_hits_an_error_still_ends(monkeypatch):
+    # Any exception in the scan loop killed its thread silently: the scan stayed "running" and its socket waited forever.
+    import asyncio
+    import time
+    from veyro import extras, runner
+    monkeypatch.setattr(extras, "reusable", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("database is locked")))
+    scan_id = runner.start_scan(asyncio.new_event_loop(), "watchlist", ["AAPL"], None, None, "en", False, reuse=True)
+    bus = runner.SCAN_BUSES[scan_id]
+    t0 = time.time()
+    while not bus.closed and time.time() - t0 < 5:
+        time.sleep(0.05)
+    assert bus.closed and bus.events[-1]["type"] == "end"
+    assert db.get_scan(scan_id)["status"] == "error"
