@@ -309,7 +309,7 @@ All ten were built in the second round except #4, which the owner decided agains
 | TypeScript `tsc --noEmit` and `npm run build` | OK | OK | OK | OK |
 
 Totals after round 3: pytest **42 → 138**, browser checks **31 → 91**, 0 failures in the last full run of `tools/e2e/run_all.sh`.
-Round 4: pytest **158** (5 Saudi scan + 15 review fixes); browser checks **92 + 26 + 9 = 127** (FINAL_E2E).
+Round 4: pytest **158** (5 Saudi scan + 15 review fixes); browser checks **92 + 26 + 9 = 127**, 0 failures in the full run of `tools/e2e/run_all.sh` (9 suites).
 
 ## Round 3 (owner requests)
 
