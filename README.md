@@ -1,13 +1,15 @@
-# فيرو · Veyro: واجهة عربية/إنجليزية لـ TradingAgents
+# فيرو · Veyro: تحليل الأسهم الأمريكية والسعودية بـ TradingAgents
 
-**Veyro is a bilingual (Arabic / English) desktop app for [TradingAgents](https://github.com/TauricResearch/TradingAgents)**, the open-source multi-agent LLM trading framework by Tauric Research. It turns a TradingAgents run (analysts, a bull-vs-bear debate, a trader, a risk team and a portfolio manager) into a pixel-art office of 8 animal characters you can watch, for **US stocks and the Saudi market (Tadawul)**.
+**US and Saudi (Tadawul) stock analysis, in Arabic and English, built on TradingAgents**
+
+**Veyro is a bilingual (Arabic / English) desktop app for [TradingAgents](https://github.com/TauricResearch/TradingAgents)**, the open-source multi-agent LLM trading framework by Tauric Research. It turns a TradingAgents run (analysts, a bull-vs-bear debate, a trader, a risk team and a portfolio manager) into a pixel-art office of 8 animal characters you can watch, for **both US stocks (NYSE / NASDAQ) and Saudi stocks (Tadawul)**.
 
 مكتب بكسلي فيه ٨ شخصيات حيوانات تتناقش حول سهم أمريكي أو سعودي قدامك، وبعدين ليو (الأسد) يعلن القرار. التطبيق **مبني على [TradingAgents](https://github.com/TauricResearch/TradingAgents)** من Tauric Research (Apache-2.0)، ويستخدمه كما هو بدون تعديل (نسخة v0.5.1)، ويضيف فوقه الواجهة والمنطق المالي وسقف الصرف والفحص الشرعي الاختياري.
 
 > تحليل للمساعدة على التفكير، **وليس نصيحة مالية**. Analysis to help you think, **not financial advice**.
 > Veyro is an independent project, not affiliated with or endorsed by Tauric Research.
 
-**Keywords:** TradingAgents GUI, TradingAgents desktop app, TradingAgents Arabic, multi-agent LLM trading, Tadawul, Saudi stocks, تداول، الأسهم السعودية، ذكاء اصطناعي للأسهم.
+**Keywords:** TradingAgents GUI, US stocks, Saudi stocks, TradingAgents desktop app, TradingAgents Arabic, multi-agent LLM trading, Tadawul, Saudi stocks, تداول، الأسهم السعودية، ذكاء اصطناعي للأسهم.
 
 - المساهمة / Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - كيف يشتغل التطبيق من الداخل / Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
