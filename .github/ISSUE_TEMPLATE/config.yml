@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas (Discussions)
+    url: https://github.com/abdulrhman054-ux/veyro/discussions
+    about: Ask how something works or discuss an idea before opening an issue.
+  - name: TradingAgents (the framework Veyro is built on)
+    url: https://github.com/TauricResearch/TradingAgents
+    about: Problems inside the framework itself belong upstream.

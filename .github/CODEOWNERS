@@ -1,0 +1,7 @@
+# The maintainer reviews everything; these paths handle money, keys and security and always need their approval.
+*                                   @abdulrhman054-ux
+/backend/veyro/execution/           @abdulrhman054-ux
+/backend/veyro/secrets_store.py     @abdulrhman054-ux
+/backend/veyro/budget.py            @abdulrhman054-ux
+/backend/veyro/app.py               @abdulrhman054-ux
+/desktop/                           @abdulrhman054-ux

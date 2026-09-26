@@ -1,9 +1,17 @@
-# فيرو · Veyro
+# فيرو · Veyro: واجهة عربية/إنجليزية لـ TradingAgents
 
-مكتب بكسلي دافئ فيه ٨ شخصيات حيوانات تتناقش حول سهم أمريكي قدامك، وبعدين ليو (الأسد) يعلن القرار.
-مبني على مكتبة **TradingAgents** مفتوحة المصدر (Apache-2.0).
+**Veyro is a bilingual (Arabic / English) desktop app for [TradingAgents](https://github.com/TauricResearch/TradingAgents)**, the open-source multi-agent LLM trading framework by Tauric Research. It turns a TradingAgents run (analysts, a bull-vs-bear debate, a trader, a risk team and a portfolio manager) into a pixel-art office of 8 animal characters you can watch, for **US stocks and the Saudi market (Tadawul)**.
 
-> تحليل للمساعدة على التفكير، **وليس نصيحة مالية**.
+مكتب بكسلي فيه ٨ شخصيات حيوانات تتناقش حول سهم أمريكي أو سعودي قدامك، وبعدين ليو (الأسد) يعلن القرار. التطبيق **مبني على [TradingAgents](https://github.com/TauricResearch/TradingAgents)** من Tauric Research (Apache-2.0)، ويستخدمه كما هو بدون تعديل (نسخة v0.5.1)، ويضيف فوقه الواجهة والمنطق المالي وسقف الصرف والفحص الشرعي الاختياري.
+
+> تحليل للمساعدة على التفكير، **وليس نصيحة مالية**. Analysis to help you think, **not financial advice**.
+> Veyro is an independent project, not affiliated with or endorsed by Tauric Research.
+
+**Keywords:** TradingAgents GUI, TradingAgents desktop app, TradingAgents Arabic, multi-agent LLM trading, Tadawul, Saudi stocks, تداول، الأسهم السعودية، ذكاء اصطناعي للأسهم.
+
+- المساهمة / Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- كيف يشتغل التطبيق من الداخل / Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- الترخيص / License: [Apache-2.0](LICENSE)
 
 ---
 
@@ -136,8 +144,9 @@
 - Desktop app: `python tools/build_desktop.py` (bundles Python + packages into `desktop/runtime`, precompiled with unchecked-hash `.pyc` so no launch recompiles anything), then `npm run dist` in `desktop/` gives `desktop/dist/Veyro-Setup.exe` (recommended, fastest launches) and `desktop/dist/win-unpacked/`. `npm run dist:portable` also builds `Veyro-Portable.exe`.
 - Backend: `backend/` (FastAPI). Run `.venv\Scripts\python -m veyro` from `backend/`.
 - Frontend: `frontend/` (Vite + React + TS). Run `npm run dev` (proxies to 8765) and `npm run build` to update `frontend/dist`. To use the Orders screen from the dev server, start the backend with `VEYRO_DEV=1` (its origin is refused otherwise).
-- Tests: `.venv\Scripts\python -m pytest backend/tests -q`
+- Tests: `.venv\Scripts\python -m pytest backend/tests -q`, and the browser suites `bash tools/e2e/run_all.sh` (see `tools/e2e/README.md`). CI runs both on every pull request.
+- How to contribute: [`CONTRIBUTING.md`](CONTRIBUTING.md). How the pieces fit: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - Browser verification: `.venv\Scripts\python tools\verify_app.py` (screenshots go to `verification/`).
 - Design canvas generator: `.venv\Scripts\python tools\build_canvas.py <out>`.
 
-Credits: TradingAgents © Tauric Research (Apache-2.0, see `third_party/TradingAgents/LICENSE`). Fonts: Baloo Bhaijaan 2 and Pixelify Sans (SIL OFL). Characters and art are original.
+Credits: built on [TradingAgents](https://github.com/TauricResearch/TradingAgents) © Tauric Research (Apache-2.0, see `third_party/TradingAgents/LICENSE`), used unmodified. Fonts: Baloo Bhaijaan 2 and Pixelify Sans (SIL OFL). Characters and art are original.

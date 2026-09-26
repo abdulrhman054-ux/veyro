@@ -1,0 +1,50 @@
+name: Bug report · بلاغ خطأ
+description: Something in Veyro doesn't work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Write in Arabic or English. **Never paste API keys.** For security problems use Security → Report a vulnerability instead.
+        اكتب بالعربي أو الإنجليزي. **لا تلصق مفاتيح API أبداً.**
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Wiring (UI ↔ backend, events, errors)
+        - Navigation between screens
+        - Session logic (start, Stop, resume, scans)
+        - Spend cap / cost estimate
+        - Plan, fees, virtual portfolio, track record
+        - Sharia screen
+        - Market data (Saudi / US)
+        - Desktop app (Windows)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Mode (I'm new / One stock / Watchlist / Scan), ticker, demo or real, language, screen width.
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "v1.2.0, or the commit hash"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines (optional)
+      description: From data/veyro-server.log or Veyro-Data/veyro-server.log. Remove anything personal.
+      render: text
