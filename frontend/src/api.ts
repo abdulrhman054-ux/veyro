@@ -38,13 +38,19 @@ export function openStream(path: string, onEvent: (ev: VEvent) => void, onClose?
 export type Estimate = { known: boolean; low: number | null; high: number | null; currency: string; sessions: number };
 export type KeyInfo = { present: boolean; masked: string | null; source: "app" | "env" | "none" };
 export type Settings = {
-  provider: string; quick_model: string; deep_model: string;
-  providers: Record<string, { label: string; quick: string[]; deep: string[]; extra?: boolean; needs_key?: boolean }>;
+  provider: string; quick_model: string | null; deep_model: string | null;
+  providers: Record<string, { label: string; quick: string[]; deep: string[]; extra?: boolean; needs_key?: boolean; listable?: boolean;
+    recommend?: { quick: string | null; deep: string | null; why_ar: string; why_en: string } | null }>;
   reasoning_depth: string;
   anthropic_workspace_id: string | null;
-  keys: Record<string, KeyInfo>; estimate: Estimate;
+  keys: Record<string, KeyInfo>; estimate: Estimate; pricing?: Record<string, [number, number]>; limits?: { batch: number; screen: number }; data_source?: string;
+  spend?: { month: string; spent: number; sessions: number; unpriced_sessions: number; cap: number | null;
+    reserved?: number; other_usd?: number; other_calls?: number; unpriced_calls?: number };
+  custom_prices?: Record<string, [number, number]>;
   team: { analysts: string[]; debate_rounds: number; risk_rounds: number };
   data_keys: Record<"fred" | "alpha_vantage" | "typesafe", { present: boolean; masked: string | null }>;
+  sharia?: { enabled: boolean; method: string; hide: boolean; methods?: Record<string, { ar: string; en: string }> };
+  broker_fees?: Record<"sa" | "us", { rate: number; min: number; vat: number; set: boolean }>;
 };
 export type History = { available: boolean; ticker?: string; dates?: string[]; closes?: number[]; source?: string };
 export type PriceInfo = { price: number | null; spy: number | null; as_of: string | null; source: string | null };
@@ -56,7 +62,7 @@ export type Verdict = {
 export type Usage = { models: Record<string, { input: number; output: number; calls: number; cost_usd?: number }>; cost_usd: number | null; pricing_known: boolean };
 export type VEvent =
   | { type: "session"; id: string; ticker: string; mode: "real" | "demo"; lang: string; trade_date: string; estimate: Estimate;
-      on_break?: string[]; asset_type?: string; benchmark?: string; portfolio_used?: boolean; debate_rounds?: number; risk_rounds?: number }
+      on_break?: string[]; asset_type?: string; benchmark?: string; portfolio_used?: boolean; portfolio_broker?: string | null; debate_rounds?: number; risk_rounds?: number }
   | { type: "team"; on_break: string[]; asset_type: string }
   | { type: "market"; data: History | null; available: boolean }
   | { type: "agent_started"; character: string; node: string }
@@ -71,7 +77,7 @@ export type VEvent =
   | { type: "scan_result"; index: number; ticker: string; session_id: string; status: string; rating: string | null }
   | { type: "scan_ranked"; ranking: { ticker: string; rating: string | null; session_id: string; status: string }[] };
 
-export type Candidate = { symbol: string; name: string | null; price: number | null; change_pct: number | null; volume: number | null; as_of: string; source: string };
+export type Candidate = { symbol: string; name: string | null; price: number | null; currency?: string; change_pct: number | null; volume: number | null; as_of: string; source: string };
 
 export type Turn = {
   id: number; seq: number; character: string; node: string; detail_en: string;

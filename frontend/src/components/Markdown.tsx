@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Glossed } from "../extras/Glossary";
 
 /** Minimal, safe markdown -> React (no innerHTML): headings, bold, bullets, tables, paragraphs. */
 function inline(text: string): ReactNode[] {
@@ -6,11 +7,11 @@ function inline(text: string): ReactNode[] {
   const re = /\*\*([^*]+)\*\*|`([^`]+)`/g;
   let last = 0, m: RegExpExecArray | null, k = 0;
   while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index));
+    if (m.index > last) out.push(<Glossed key={`g${k++}`} text={text.slice(last, m.index)} />);
     out.push(m[1] ? <strong key={k++}>{m[1]}</strong> : <code key={k++}>{m[2]}</code>);
     last = m.index + m[0].length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(<Glossed key={`g${k++}`} text={text.slice(last)} />);
   return out;
 }
 

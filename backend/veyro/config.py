@@ -92,11 +92,21 @@ STYLE = {
     },
 }
 
+# ---------------------------------------------------------------- batch sizes
+# How many stocks one watchlist / scan / morning report may analyse. Each stock is a full paid
+# session run one after another, so the UI always shows the cost estimate multiplied by the count.
+MAX_BATCH = 50
+MAX_SCREEN = 25
+
 # ---------------------------------------------------------------- providers & models
 PROVIDERS = {
+    # Every current Claude model is offered for both roles, so the owner can run any of them.
+    # The Settings screen can also load the exact list the saved key has access to (GET /v1/models).
     "anthropic": {"label": "Claude", "env": "ANTHROPIC_API_KEY",
-                  "quick": ["claude-haiku-4-5", "claude-sonnet-5"],
-                  "deep": ["claude-opus-5-5", "claude-sonnet-5"],
+                  "quick": ["claude-sonnet-5", "claude-haiku-4-5", "claude-opus-5-5", "claude-fable-5-1", "claude-opus-5",
+                            "claude-fable-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6"],
+                  "deep": ["claude-opus-5-5", "claude-fable-5-1", "claude-opus-5", "claude-sonnet-5", "claude-fable-5",
+                           "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
                   "default_quick": "claude-sonnet-5", "default_deep": "claude-opus-5-5"},
     "openai": {"label": "OpenAI", "env": "OPENAI_API_KEY",
                "quick": ["gpt-6-luna", "gpt-5.6-luna", "gpt-5.6-terra"],
@@ -112,7 +122,27 @@ PROVIDERS = {
 EXTRA_PROVIDERS = {
     "google": {"label": "Google Gemini", "env": "GOOGLE_API_KEY"},
     "xai": {"label": "xAI Grok", "env": "XAI_API_KEY"},
+    "mistral": {"label": "Mistral", "env": "MISTRAL_API_KEY", "base": "https://api.mistral.ai/v1"},
+    "qwen": {"label": "Qwen (Alibaba)", "env": "DASHSCOPE_API_KEY", "base": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"},
+    "glm": {"label": "GLM (Zhipu)", "env": "ZHIPU_API_KEY", "base": "https://api.z.ai/api/paas/v4/"},
+    "kimi": {"label": "Kimi (Moonshot)", "env": "MOONSHOT_API_KEY", "base": "https://api.moonshot.ai/v1"},
+    "minimax": {"label": "MiniMax", "env": "MINIMAX_API_KEY", "base": "https://api.minimax.io/v1"},
+    "openrouter": {"label": "OpenRouter (many models)", "env": "OPENROUTER_API_KEY", "base": "https://openrouter.ai/api/v1"},
+    "groq": {"label": "Groq", "env": "GROQ_API_KEY", "base": "https://api.groq.com/openai/v1"},
     "ollama": {"label": "Ollama (local, free)", "env": None},
+}
+
+# OpenAI-compatible endpoints used to list the models an account can use (Settings → "load my models").
+LIST_BASE = {"openai": "https://api.openai.com/v1", "deepseek": "https://api.deepseek.com", "xai": "https://api.x.ai/v1",
+             **{k: v["base"] for k, v in EXTRA_PROVIDERS.items() if v.get("base")}}
+
+# The model we suggest per provider and why (shown in Settings with a "use recommended" button).
+# Claude: Sonnet 5 runs the many analyst/debate/voice calls at a good price; Opus 5.5 makes the final
+# decisions with frontier reasoning at a lower price than Fable 5.1. Others: the framework's own first choice.
+RECOMMEND = {
+    "anthropic": {"quick": "claude-sonnet-5", "deep": "claude-opus-5-5",
+                  "why_ar": "Sonnet 5 للمحللين والنقاش (أفضل توازن سرعة وجودة وسعر)، وOpus 5.5 لقرار ليو (تفكير عميق بسعر أقل من Fable). للأرخص: Haiku 4.5 سريع. لأعلى جودة: Fable 5.1 عميق (أغلى بكثير).",
+                  "why_en": "Sonnet 5 for analysts and debate (best balance of speed, quality and price) and Opus 5.5 for Leo's decision (deep reasoning, cheaper than Fable). Cheapest: Haiku 4.5 as quick. Maximum quality: Fable 5.1 as deep (much pricier)."},
 }
 
 
@@ -128,7 +158,9 @@ def _catalog_models():
         quick = [v for _, v in opts.get("quick", []) if v != "custom"]
         deep = [v for _, v in opts.get("deep", []) if v != "custom"]
         if pid in EXTRA_PROVIDERS:
-            PROVIDERS[pid] = {**meta, "quick": quick, "deep": deep, "default_quick": quick[0], "default_deep": deep[0], "extra": True}
+            # Some providers (OpenRouter, Groq) have no fixed list: the owner loads their models or types an ID.
+            PROVIDERS[pid] = {**meta, "quick": quick, "deep": deep, "default_quick": quick[0] if quick else None,
+                              "default_deep": deep[0] if deep else None, "extra": True}
         else:
             # keep our curated order, add anything else the framework lists
             PROVIDERS[pid]["quick"] = list(dict.fromkeys(PROVIDERS[pid]["quick"] + quick))
@@ -136,14 +168,27 @@ def _catalog_models():
 
 
 _catalog_models()
+for _pid, _meta in EXTRA_PROVIDERS.items():   # providers missing from this framework version's catalog
+    PROVIDERS.setdefault(_pid, {**_meta, "quick": [], "deep": [], "default_quick": None, "default_deep": None, "extra": True})
+for _pid, _p in PROVIDERS.items():
+    RECOMMEND.setdefault(_pid, {"quick": _p["default_quick"], "deep": _p["default_deep"],
+                                "why_ar": "اختيار إطار TradingAgents الافتراضي لهذا المزوّد.",
+                                "why_en": "TradingAgents' own default choice for this provider."})
 
 # USD per 1M tokens (input, output). Anthropic first-party list prices, verified
 # 2026-09 from the Claude API reference. Other providers: no verified price -> the
 # UI shows token counts and says the price is unknown instead of guessing.
 PRICING = {
-    "claude-haiku-4-5": (1.00, 5.00),
-    "claude-sonnet-5": (2.00, 10.00),
+    "claude-fable-5-1": (10.00, 50.00),
+    "claude-fable-5": (10.00, 50.00),
     "claude-opus-5-5": (4.00, 20.00),
+    "claude-opus-5": (5.00, 25.00),
+    "claude-opus-4-8": (5.00, 25.00),
+    "claude-opus-4-7": (5.00, 25.00),
+    "claude-opus-4-6": (5.00, 25.00),
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-haiku-4-5": (1.00, 5.00),
 }
 
 # Rough token envelope for one default session (4 analysts, 1 debate round, 1 risk round),

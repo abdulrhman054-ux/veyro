@@ -9,10 +9,13 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from . import service as S
+from .broker import BrokerError
 
 router = APIRouter(prefix="/api/exec")
 _PORT = os.environ.get("VEYRO_PORT", "8765")
-ALLOWED_ORIGINS = {f"http://127.0.0.1:{_PORT}", f"http://localhost:{_PORT}", "http://127.0.0.1:5173", "http://localhost:5173"}
+ALLOWED_ORIGINS = {f"http://127.0.0.1:{_PORT}", f"http://localhost:{_PORT}"}
+if os.environ.get("VEYRO_DEV") == "1":   # the Vite dev server (npm run dev) only when a developer asks for it
+    ALLOWED_ORIGINS |= {"http://127.0.0.1:5173", "http://localhost:5173"}
 
 
 def same_origin(request: Request) -> None:
@@ -32,6 +35,9 @@ def wrap(fn, *a, **k):
         return fn(*a, **k)
     except S.ExecError as e:
         return err(e)
+    except BrokerError as e:
+        # The broker (or the Mock's price feed) couldn't answer: an expected, explainable refusal, not a crash.
+        return JSONResponse({"ok": False, "code": getattr(e, "code", None) or "broker", "character": "Tank", "data": {}}, status_code=200)
 
 
 @router.get("/status")

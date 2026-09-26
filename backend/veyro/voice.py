@@ -31,11 +31,33 @@ def _text(msg: Any) -> str:
     return str(c).strip()
 
 
+def clean_line(text: str) -> str:
+    """Spoken lines are plain text in a dialogue box: drop markdown, labels and wrapping quotes a model may add."""
+    t = text.strip()
+    t = re.sub(r"^```\w*\s*|\s*```$", "", t)
+    t = re.sub(r"^\s*#+\s*", "", t, flags=re.M)                 # headings
+    t = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: m.group(1) or m.group(2), t)
+    t = re.sub(r"(?<!\w)\*(\S.*?)\*(?!\w)", r"\1", t)
+    t = re.sub(r"^\s*[-*•]\s+", "", t, flags=re.M)               # bullets
+    t = re.sub(r"^\s*(?:line|الجملة|السطر)\s*[:：]\s*", "", t, flags=re.I)
+    t = re.sub(r"\s*\n\s*", " ", t).strip()
+    if len(t) >= 2 and t[0] in "\"'«“" and t[-1] in "\"'»”":
+        t = t[1:-1].strip()
+    return t
+
+
 class Voice:
-    def __init__(self, provider: str, model: str, callbacks: list | None = None):
+    def __init__(self, provider: str, model: str, callbacks: list | None = None, what: str = "other", allow_over_cap: bool = False):
+        """Inside a session the session's tracker is passed in. Any other call (translation, Albie, Ask the team, the
+        beginner lesson, a connection test) is counted in the month's spend ledger and refused once the cap is reached
+        (a connection test is allowed: it's how the owner fixes a key)."""
         kwargs: dict[str, Any] = {}
-        if callbacks:
-            kwargs["callbacks"] = callbacks
+        self.side = not callbacks
+        self.allow_over_cap = allow_over_cap
+        if not callbacks:
+            from .budget import ledger_tracker
+            callbacks = [ledger_tracker(what)]
+        kwargs["callbacks"] = callbacks
         base = None
         if provider == "anthropic":
             from .anthropic_relay import base_url
@@ -43,6 +65,10 @@ class Voice:
         self.llm = create_llm_client(provider=provider, model=model, base_url=base, **kwargs).get_llm()
 
     def _ask(self, system: str, user: str) -> str:
+        if self.side and not self.allow_over_cap:
+            from .budget import CapReached, blocked
+            if blocked():
+                raise CapReached()
         return _text(self.llm.invoke([("system", system), ("human", user)]))
 
     def speak(self, character: str, ticker: str, source: str, lang: str, context: str = "") -> str:
@@ -63,8 +89,9 @@ class Voice:
             f"- Personality shows in voice and word choice only, never in the facts. End with the catchphrase: {catch}\n"
             "Output only the spoken line, no quotes, no labels, no markdown."
         )
-        user = f"Ticker: {ticker}\n{context}\nThe agent's conclusion (English):\n{source[:MAX_SOURCE]}"
-        return self._ask(system, user)
+        user = (f"Ticker: {ticker}\n" + (f"Where this line sits in the conversation:\n{context}\n\n" if context else "")
+                + f"The agent's conclusion (English):\n{source[:MAX_SOURCE]}")
+        return clean_line(self._ask(system, user))
 
     def verdict(self, ticker: str, rating: str, decision: str, lang: str) -> dict:
         ch = CHARACTERS["Leo"]
@@ -89,10 +116,19 @@ class Voice:
                 data = json.loads(m.group(0))
             except json.JSONDecodeError:
                 data = {}
+        if not data:
+            # Not valid JSON: recover the fields individually rather than showing raw JSON in the dialogue box.
+            for k in ("line", "reason", "conviction"):
+                mk = re.search(rf'"{k}"\s*:\s*"((?:[^"\\]|\\.)*)"', raw)
+                if mk:
+                    try:
+                        data[k] = json.loads(f'"{mk.group(1)}"')   # proper JSON string unescape (keeps Arabic intact)
+                    except json.JSONDecodeError:
+                        data[k] = mk.group(1).replace('\\"', '"').replace("\\n", " ")
         conv = str(data.get("conviction", "unstated")).lower()
         return {
-            "line": str(data.get("line") or raw).strip(),
-            "reason": str(data.get("reason") or "").strip(),
+            "line": clean_line(str(data.get("line") or re.sub(r"[{}]", "", raw))),
+            "reason": clean_line(str(data.get("reason") or "")),
             "conviction": conv if conv in ("low", "medium", "high") else "unstated",
         }
 

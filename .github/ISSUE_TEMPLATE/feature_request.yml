@@ -1,0 +1,34 @@
+name: Improvement · اقتراح تطوير
+description: An idea to make Veyro's flow, logic or wiring better.
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Wiring (UI ↔ backend)
+        - Navigation between screens
+        - App logic
+        - Financial logic
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does it solve?
+      description: Who hits it (beginner, active trader, …) and when.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: Ground rules
+      options:
+        - label: It keeps keys in the OS keyring only, execution off by default and confirmed, the spend cap, same-origin checks, and free data only.
+          required: true

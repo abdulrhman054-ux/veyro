@@ -11,12 +11,14 @@ import logging
 import re
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+import math
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import yfinance as yf
+from .lazy import yf   # loads on first use (fast startup)
 
 from . import db, market, runner
+from .config import MAX_BATCH
 
 log = logging.getLogger("veyro.assistant")
 NY = ZoneInfo("America/New_York")
@@ -34,7 +36,7 @@ CREATE TABLE IF NOT EXISTS qa (
 """
 
 DEFAULTS = {"morning_enabled": False, "morning_time": "08:00", "alerts_enabled": True, "alert_threshold": 3.0,
-            "alerts_news": True, "ui_lang": "ar"}
+            "alerts_news": True, "morning_count": 5, "ui_lang": "ar"}
 
 
 def init() -> None:
@@ -54,6 +56,8 @@ def set_prefs(p: dict) -> dict:
             raise ValueError("bad_time")
         if k == "alert_threshold":
             v = max(1.0, min(20.0, float(v)))
+        if k == "morning_count":
+            v = max(1, min(MAX_BATCH, int(v)))
         if k == "ui_lang" and v not in ("ar", "en"):
             continue
         db.set_setting(f"assist:{k}", v)
@@ -179,12 +183,21 @@ def morning_due(now_local: datetime | None = None) -> bool:
     if not p["morning_enabled"] or not favorites():
         return False
     now_local = now_local or datetime.now()
-    if datetime.now(NY).weekday() >= 5:
-        return False  # weekends: markets closed, nothing new to analyse
+    if not _any_market_trades_today(favorites(), now_local):
+        return False  # none of the favourites' markets trades today (Tadawul: Sun-Thu; US: Mon-Fri)
     hh, mm = map(int, p["morning_time"].split(":"))
     if (now_local.hour, now_local.minute) < (hh, mm):
         return False
     return db.get_setting("assist:morning_last") != now_local.strftime("%Y-%m-%d")
+
+
+def _any_market_trades_today(tickers: list[str], now: datetime) -> bool:
+    """A trading day (weekends and known holidays excluded) in any favourite's own market and time zone."""
+    from .calendars import MARKETS, is_session, market_of
+    for m in {market_of(t) for t in tickers}:
+        if is_session(m, now.astimezone(ZoneInfo(MARKETS[m]["tz"])).date()):
+            return True
+    return False
 
 
 def run_morning(loop, lang: str | None = None) -> str | None:
@@ -196,7 +209,13 @@ def run_morning(loop, lang: str | None = None) -> str | None:
         db.set_setting("assist:morning_last", datetime.now().strftime("%Y-%m-%d"))
         return None
     lang = lang or prefs()["ui_lang"]
-    tickers = favorites()[:5]
+    from . import budget
+    if budget.blocked():
+        add_alert("morning", None, "Leo", "ما شغّلت التقرير الصباحي لأن ميزانية التحليل لهذا الشهر خلصت. تقدر ترفعها من الإعدادات. زئير!",
+                  "I skipped the morning report: this month's analysis budget is used up. You can raise it in Settings. roar!")
+        db.set_setting("assist:morning_last", datetime.now().strftime("%Y-%m-%d"))
+        return None
+    tickers = favorites()[:max(1, min(MAX_BATCH, int(prefs()["morning_count"] or 5)))]
     scan_id = runner.start_scan(loop, "watchlist", tickers, None, None, lang, False)
     db.set_setting("assist:morning_last", datetime.now().strftime("%Y-%m-%d"))
     db.set_setting("assist:morning_scan", scan_id)
@@ -226,6 +245,8 @@ class Scheduler:
                 if time.time() - last_alert >= 300:
                     last_alert = time.time()
                     check_alerts()
+                    from .extras import check_all_prices
+                    check_all_prices()
             except Exception as e:  # noqa: BLE001
                 log.info("assistant tick failed: %s", type(e).__name__)
 
@@ -260,7 +281,7 @@ def ask(sid: str, question: str, lang: str) -> dict:
         'Return ONLY JSON: {"character": "<name>", "answer": "<text>"}'
     )
     user = f"Ticker: {s['ticker']} · verdict: {s.get('rating')}\n\nSession notes:\n{notes[:24000]}\n\nQuestion: {question}"
-    raw = Voice(provider, quick)._ask(system, user)
+    raw = Voice(provider, quick, what="ask")._ask(system, user)
     m = re.search(r"\{.*\}", raw, re.S)
     data = {}
     if m:
@@ -286,8 +307,16 @@ def learning(enrich) -> dict:
     rows = [enrich(r) for r in db.list_sessions(500) if r["mode"] == "real" and r["status"] == "done"]
     month = datetime.now().strftime("%Y-%m")
 
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_min_age_days())
+
     def score(r):
         if r.get("ret") is None or r.get("spy_ret") is None or r["rating"] not in RATING_ORDER:
+            return None
+        try:   # same rule as the trust dashboard: judge a call only after the holding period
+            t = datetime.fromisoformat(r.get("finished_at") or r.get("created_at") or "")
+            if (t if t.tzinfo else t.replace(tzinfo=timezone.utc)) > cutoff:
+                return None
+        except ValueError:
             return None
         ex = r["ret"] - r["spy_ret"]
         d = {"Buy": 1, "Overweight": 1, "Hold": 0, "Underweight": -1, "Sell": -1}[r["rating"]]
@@ -326,3 +355,113 @@ def learning(enrich) -> dict:
     return {"month": month, "this_month": block([r for r in rows if (r.get("created_at") or "").startswith(month)]),
             "all_time": block(rows),
             "framework": {"settled": len(fw), "mean_alpha": (sum(alphas) / len(alphas)) if alphas else None}}
+
+
+def _min_age_days() -> int:
+    """The framework's holding period (trading days) in calendar days: 5 trading days = 7 calendar days."""
+    try:
+        from tradingagents.default_config import DEFAULT_CONFIG
+        return max(1, round(int(DEFAULT_CONFIG.get("holding_period_days", 5)) * 7 / 5))
+    except Exception:  # noqa: BLE001
+        return 7
+
+
+HORIZONS = (5, 20)   # trading days after the call; 5 = the framework's own holding period
+MIN_SAMPLE = 30      # below this a hit rate is shown as "too few to judge"
+
+
+def add_trading_days(start: str, n: int, ticker: str) -> str:
+    """The date n trading sessions after `start` in the stock's own market (holiday-aware where known)."""
+    from .calendars import add_sessions, market_of
+    return add_sessions(start, n, market_of(ticker))
+
+
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
+    """95% interval for a hit rate of k out of n (Wilson score): how sure the number really is."""
+    if not n:
+        return None
+    p = k / n
+    den = 1 + z * z / n
+    mid = (p + z * z / (2 * n)) / den
+    half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / den
+    return (max(0.0, mid - half), min(1.0, mid + half))
+
+
+def trust(rows: list[dict], today: date | None = None) -> dict:
+    """How the team's calls did, with no model involved. Each finished real call is scored at fixed horizons
+    (5 and 20 trading days after it): the stock's return minus its benchmark's over exactly that window.
+    Buy/Overweight is right when it beat the index, Underweight/Sell when it lagged; Hold isn't scored.
+    A call younger than a horizon is "waiting". The same stock with the same call within 5 days counts once."""
+    from . import market
+    DIR = {"Buy": 1, "Overweight": 1, "Hold": 0, "Underweight": -1, "Sell": -1}
+    today = today or datetime.now(timezone.utc).date()
+
+    def start_of(r):
+        made = (r.get("finished_at") or r.get("created_at") or "")[:10]
+        td = r.get("trade_date") or made
+        return min(td, made) if made else td   # a past-date analysis is priced at that day's close
+
+    seen: dict[tuple, str] = {}
+    uniq = []
+    for r in sorted(rows, key=lambda r: r.get("created_at") or ""):
+        k = (r.get("ticker"), r.get("rating"))
+        st = start_of(r)
+        last = seen.get(k)
+        if last and st and (date.fromisoformat(st) - date.fromisoformat(last)).days < 5:
+            continue
+        seen[k] = st
+        uniq.append(r)
+
+    def scored(r, n):
+        d = DIR.get(r.get("rating"))
+        if not d or not r.get("price_at_verdict") or not r.get("spy_at_verdict") or not start_of(r):
+            return None
+        end = add_trading_days(start_of(r), n, r["ticker"])
+        if date.fromisoformat(end) >= today:   # that day's close isn't in yet: scoring now would use the day before
+            return "waiting"
+        bench = r.get("benchmark") or ((r.get("config") or {}).get("benchmark"))
+        p1, b1 = market.close_on_or_before(r["ticker"], end), market.close_on_or_before(bench, end) if bench else None
+        if not p1 or not b1:
+            return None
+        # Yahoo's closes are split-adjusted; the recorded prices at the verdict are not.
+        p1, b1 = p1 * market.split_factor(r["ticker"], start_of(r)), b1 * market.split_factor(bench, start_of(r))
+        ex = (p1 / r["price_at_verdict"] - 1) - (b1 / r["spy_at_verdict"] - 1)
+        return {"hit": ex * d > 0, "excess": ex, "signed": ex * d}
+
+    def agg(items):
+        s = [x for x in items if isinstance(x, dict)]
+        n, k = len(s), sum(x["hit"] for x in s)
+        ci = wilson(k, n)
+        return {"n": n, "hits": k, "hit_rate": (k / n) if n else None, "avg_edge": (sum(x["signed"] for x in s) / n) if n else None,
+                "ci_low": ci[0] if ci else None, "ci_high": ci[1] if ci else None, "enough": n >= MIN_SAMPLE,
+                "waiting": sum(1 for x in items if x == "waiting")}
+
+    main = HORIZONS[0]
+    pairs = [(r, scored(r, main)) for r in uniq]
+    by_month: dict[str, list] = {}
+    by_rating: dict[str, list] = {}
+    by_model: dict[str, dict] = {}
+    for r, sc in pairs:
+        by_month.setdefault((r.get("created_at") or "")[:7], []).append(sc)
+        by_rating.setdefault(r.get("rating") or "REVIEW", []).append(sc)
+        key = f"{r.get('provider') or '?'} · {r.get('quick_model') or '?'} / {r.get('deep_model') or '?'}"
+        m = by_model.setdefault(key, {"items": [], "cost": 0.0, "sessions": 0, "priced": 0})
+        m["items"].append(sc)
+        m["sessions"] += 1
+        if r.get("cost_usd") is not None:
+            m["cost"] += r["cost_usd"]
+            m["priced"] += 1
+    months = sorted(k for k in by_month if k)[-6:]
+    overall = agg([sc for _, sc in pairs])
+    return {
+        "overall": {**overall, "sessions": len(rows), "distinct": len(uniq)},
+        "horizons": {str(h): agg([scored(r, h) for r in uniq]) for h in HORIZONS},
+        "horizon": main,
+        "months": [{"month": k, **agg(by_month[k]), "sessions": len(by_month[k])} for k in months],
+        "by_rating": {k: {**agg(v), "sessions": len(v)} for k, v in by_rating.items()},
+        "by_model": [{"model": k, **agg(v["items"]), "sessions": v["sessions"],
+                      "avg_cost": (v["cost"] / v["priced"]) if v["priced"] else None} for k, v in by_model.items()],
+        "min_sample": MIN_SAMPLE,
+        "pending": overall["waiting"],
+        "min_age_days": main,
+    }

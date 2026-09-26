@@ -4,13 +4,27 @@ import { setSound } from "./audio";
 
 export type Theme = "day" | "night" | "system";
 export type Intensity = "calm" | "normal" | "lively";
-export type Prefs = { lang: Lang; theme: Theme; intensity: Intensity; reduceMotion: boolean; sound: boolean; showCost: boolean };
+export type TextSize = "normal" | "large" | "xlarge";
+export type Prefs = { lang: Lang; theme: Theme; intensity: Intensity; reduceMotion: boolean; sound: boolean; showCost: boolean;
+  textSize: TextSize; contrast: boolean; readAloud: boolean };
 
-const DEFAULTS: Prefs = { lang: "ar", theme: "day", intensity: "normal", reduceMotion: false, sound: true, showCost: true };
+const DEFAULTS: Prefs = { lang: "ar", theme: "day", intensity: "normal", reduceMotion: false, sound: true, showCost: true,
+  textSize: "normal", contrast: false, readAloud: false };
 const KEY = "veyro.prefs.v1";
 
+/** First visit: follow the browser's language (Arabic browsers get Arabic, everyone else English). */
+function browserLang(): Lang {
+  try {
+    for (const l of navigator.languages?.length ? navigator.languages : [navigator.language]) {
+      const b = (l || "").toLowerCase().slice(0, 2);
+      if (b === "ar" || b === "en") return b;
+    }
+    return "en";
+  } catch { return DEFAULTS.lang; }
+}
+
 function load(): Prefs {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch { return DEFAULTS; }
+  try { return { ...DEFAULTS, lang: browserLang(), ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch { return DEFAULTS; }
 }
 
 type Ctx = { prefs: Prefs; set: (p: Partial<Prefs>) => void; t: T; night: boolean; motionOff: boolean };
@@ -38,6 +52,8 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
     h.lang = prefs.lang; h.dir = prefs.lang === "ar" ? "rtl" : "ltr";
     h.dataset.theme = night ? "night" : "day";
     h.dataset.intensity = motionOff ? "off" : prefs.intensity;
+    h.dataset.textsize = prefs.textSize;
+    h.dataset.contrast = prefs.contrast ? "high" : "normal";
     document.title = prefs.lang === "ar" ? "فيرو · مكتب المجلس" : "Veyro · Council Office";
   }, [prefs, night, motionOff]);
 

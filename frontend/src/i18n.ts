@@ -56,7 +56,7 @@ const ar = {
   brand: "فيرو", tagline: "مكتب المجلس الذكي", office: "المكتب", report: "التقرير", history: "السجل", settings: "الإعدادات",
   nav: "التنقل الرئيسي", demo: "تجريبي", demoMode: "وضع تجريبي (بدون مفتاح ولا تكلفة)",
   single: "سهم واحد", watchlist: "قائمة أسهم", scan: "مسح السوق",
-  ticker: "رمز السهم", tickers: "الرموز (حتى 5، افصل بفاصلة)", start: "ابدأ الجلسة", running: "الجلسة جارية…", again: "جلسة جديدة",
+  ticker: "رمز السهم", tickers: "الرموز (افصل بفاصلة)", start: "ابدأ الجلسة", running: "الجلسة جارية…", again: "جلسة جديدة",
   stop: "إيقاف", startScan: "ابدأ المسح", startList: "حلّل القائمة",
   screener: "نوع المسح", candidates: "عدد الأسهم", preview: "اعرض المرشحين", candidatesFrom: "مرشحون حقيقيون من",
   estimate: "التكلفة التقديرية", estimateUnknown: "سعر هذا المزوّد غير معروف لنا، نعرض عدد الكلمات فقط",
@@ -114,7 +114,7 @@ const en: Dict = {
   brand: "Veyro", tagline: "The AI Council Office", office: "Office", report: "Report", history: "History", settings: "Settings",
   nav: "Main navigation", demo: "Demo", demoMode: "Demo mode (no key, no cost)",
   single: "One stock", watchlist: "Watchlist", scan: "Market scan",
-  ticker: "Ticker", tickers: "Tickers (up to 5, comma separated)", start: "Start session", running: "In session…", again: "New session",
+  ticker: "Ticker", tickers: "Tickers (comma separated)", start: "Start session", running: "In session…", again: "New session",
   stop: "Stop", startScan: "Start scan", startList: "Analyse list",
   screener: "Scan type", candidates: "How many", preview: "Show candidates", candidatesFrom: "Real candidates from",
   estimate: "Estimated cost", estimateUnknown: "We don't know this provider's prices, so we show token counts only",
@@ -169,6 +169,12 @@ const en: Dict = {
 export const DICT: Record<Lang, Dict> = { ar, en };
 export type T = Dict;
 
+/** A number typed by the owner, in Western or Arabic-Indic digits ("٠٫١٥٥" = 0.155). NaN when it isn't one. */
+export function parseNum(text: string): number {
+  const t = text.trim().replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)))
+    .replace(/٫/g, ".").replace(/[,\s٬]/g, "");
+  return t === "" ? 0 : Number(t);
+}
 export function fmtNum(n: number | null | undefined, lang: Lang, opts: Intl.NumberFormatOptions = {}) {
   if (n === null || n === undefined || Number.isNaN(n)) return null;
   return new Intl.NumberFormat(lang === "ar" ? "ar-SA-u-nu-latn" : "en-US", opts).format(n);
@@ -182,4 +188,12 @@ export function fmtDate(iso: string | null | undefined, lang: Lang, time = true)
   const d = new Date(iso);
   return new Intl.DateTimeFormat(lang === "ar" ? "ar-SA-u-nu-latn-ca-gregory" : "en-US",
     time ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "medium" }).format(d);
+}
+
+/** "1 share" / "5 shares"; Arabic: سهم واحد / سهمين / 3–10 أسهم / 11+ سهم. */
+export function sharesText(n: number, lang: Lang) {
+  if (lang === "en") return `${fmtNum(n, lang)} ${n === 1 ? "share" : "shares"}`;
+  if (n === 1) return "سهم واحد";
+  if (n === 2) return "سهمين";
+  return `${fmtNum(n, lang)} ${n >= 3 && n <= 10 ? "أسهم" : "سهم"}`;
 }

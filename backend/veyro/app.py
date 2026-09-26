@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -14,8 +15,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import assistant, db, market, runner, world
-from .config import CHARACTERS, PROVIDERS, ROOT, STATIC_DIR
+from . import assistant, db, market, runner, sharia, world
+from .config import CHARACTERS, LIST_BASE, MAX_BATCH, MAX_SCREEN, PRICING, PROVIDERS, RECOMMEND, ROOT, STATIC_DIR
 from .execution import service as exec_service
 from .execution.routes import router as exec_router
 from .anthropic_relay import router as relay_router
@@ -31,8 +32,13 @@ log = logging.getLogger("veyro")
 TICKER_RE = re.compile(r"^[A-Z0-9][A-Z0-9.\-=^]{0,14}$")
 
 
+MAIN_LOOP: asyncio.AbstractEventLoop | None = None   # event loop for session buses when work runs in a worker thread
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    global MAIN_LOOP
+    MAIN_LOOP = asyncio.get_running_loop()
     db.conn()
     db.mark_orphans()
     exec_service.init()
@@ -40,6 +46,8 @@ async def lifespan(_app: FastAPI):
     sched = assistant.Scheduler(asyncio.get_running_loop())
     if os.environ.get("VEYRO_NO_SCHEDULER") != "1":
         sched.start()
+    from .lazy import warm_up
+    warm_up()
     yield
     sched.stop.set()
 
@@ -49,6 +57,41 @@ app = FastAPI(title="Veyro", lifespan=lifespan, docs_url=None, redoc_url=None, o
 
 app.include_router(exec_router)
 app.include_router(relay_router)
+
+
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
+
+
+def _loopback_host(host: str) -> bool:
+    """Veyro only serves loopback names. A foreign Host means DNS rebinding (a website whose name was re-pointed
+    at 127.0.0.1 sends a matching Origin, so the Origin test alone can't stop it)."""
+    name = host.rsplit(":", 1)[0] if not host.endswith("]") else host
+    return name.lower() in LOOPBACK_HOSTS
+
+
+@app.middleware("http")
+async def same_origin_only(request, call_next):
+    """Changes can only come from Veyro's own page: another website open in the browser can't drive the
+    local API (requests without an Origin header, e.g. local tools, are allowed)."""
+    if not _loopback_host(request.headers.get("host", "")):
+        return JSONResponse({"error": "host"}, status_code=403)
+    if request.method in ("POST", "PUT", "DELETE", "PATCH") and request.url.path.startswith("/api/"):
+        origin = request.headers.get("origin")
+        if origin and not _same_origin(origin, request.headers.get("host", "")):
+            return JSONResponse({"error": "origin"}, status_code=403)
+    return await call_next(request)
+
+
+def _same_origin(origin: str, host: str) -> bool:
+    from urllib.parse import urlparse
+    o = urlparse(origin)
+    return o.scheme in ("http", "https") and bool(host) and o.netloc == host
+
+
+def _ws_ok(ws: WebSocket) -> bool:
+    origin = ws.headers.get("origin")
+    host = ws.headers.get("host", "")
+    return _loopback_host(host) and (not origin or _same_origin(origin, host))
 
 
 @app.exception_handler(Exception)
@@ -74,6 +117,11 @@ class SettingsIn(BaseModel):
     risk_rounds: int | None = None
     reasoning_depth: str | None = None
     anthropic_workspace_id: str | None = None
+    data_source: str | None = None
+    monthly_cap_usd: float | None = None   # 0 = no cap
+    sharia_enabled: bool | None = None     # optional Sharia screen (off by default)
+    sharia_method: str | None = None
+    sharia_hide: bool | None = None
     custom_model: bool = False   # the user typed a model ID that isn't in the framework's list
 
 
@@ -86,14 +134,22 @@ def settings_payload() -> dict:
     return {
         "provider": provider, "quick_model": quick, "deep_model": deep,
         "providers": {p: {"label": v["label"], "quick": v["quick"], "deep": v["deep"], "extra": bool(v.get("extra")),
-                          "needs_key": v["env"] is not None} for p, v in PROVIDERS.items()},
+                          "needs_key": v["env"] is not None, "listable": p in LIST_BASE or p in ("anthropic", "ollama"),
+                          "recommend": RECOMMEND.get(p)} for p, v in PROVIDERS.items()},
         "keys": keys,
+        "pricing": {m: list(v) for m, v in PRICING.items()},
+        "limits": {"batch": MAX_BATCH, "screen": MAX_SCREEN},
+        "spend": __import__("veyro.budget", fromlist=["x"]).spent(),
+        "data_source": __import__("veyro.datasources", fromlist=["x"]).current(),
         "estimate": runner.estimate(provider, quick, deep),
         "team": runner.team_settings(),
         "reasoning_depth": db.get_setting("reasoning_depth", "default"),
         "anthropic_workspace_id": db.get_setting("anthropic_workspace_id"),
         "data_keys": {k: {"present": bool(get_secret(f"data:{k}")), "masked": mask(get_secret(f"data:{k}"))}
                       for k in ("fred", "alpha_vantage", "typesafe")},
+        "sharia": {**sharia.settings(), "methods": {k: v["name"] for k, v in sharia.METHODS.items()}},
+        "broker_fees": __import__("veyro.allocation", fromlist=["x"]).fees(),
+        "custom_prices": db.get_setting("custom_prices") or {},
     }
 
 
@@ -130,10 +186,24 @@ def put_settings(s: SettingsIn):
         if ws and not re.fullmatch(r"wrkspc_[A-Za-z0-9]{8,64}", ws):
             raise HTTPException(400, "bad_workspace")
         db.set_setting("anthropic_workspace_id", ws or None)
+    if s.monthly_cap_usd is not None:
+        if not 0 <= s.monthly_cap_usd <= 100000:
+            raise HTTPException(400, "bad_cap")
+        db.set_setting("monthly_cap_usd", s.monthly_cap_usd or None)
+    if s.data_source is not None:
+        from .datasources import SOURCES
+        if s.data_source not in SOURCES:
+            raise HTTPException(400, "bad_source")
+        db.set_setting("data_source", s.data_source)
     if s.reasoning_depth is not None:
         if s.reasoning_depth not in ("default", "low", "medium", "high"):
             raise HTTPException(400, "bad_depth")
         db.set_setting("reasoning_depth", s.reasoning_depth)
+    if s.sharia_enabled is not None or s.sharia_method is not None or s.sharia_hide is not None:
+        try:
+            sharia.save_settings(s.sharia_enabled, s.sharia_method, s.sharia_hide)
+        except ValueError:
+            raise HTTPException(400, "bad_method") from None
     return settings_payload()
 
 
@@ -155,6 +225,7 @@ def delete_data_key(source: str):
     if source not in ("fred", "alpha_vantage", "typesafe"):
         raise HTTPException(400, "bad_key")
     delete_secret(f"data:{source}")
+    runner.unset_env({"fred": "FRED_API_KEY", "alpha_vantage": "ALPHA_VANTAGE_API_KEY", "typesafe": "TYPESAFE_API_KEY"}[source])
     return settings_payload()
 
 
@@ -189,8 +260,11 @@ def test_connection(provider: str | None = None) -> dict:
     from .voice import Voice
     results = {}
     for role, model in (("quick", quick), ("deep", deep)):
+        if not model:
+            results[role] = {"model": "—", "ok": False, "code": "model"}
+            continue
         try:
-            Voice(provider, model)._ask("Reply with the single word OK.", "ping")
+            Voice(provider, model, what="key_test", allow_over_cap=True)._ask("Reply with the single word OK.", "ping")
             results[role] = {"model": model, "ok": True}
         except Exception as e:  # noqa: BLE001
             results[role] = {"model": model, "ok": False, "code": runner.classify(e)}
@@ -206,19 +280,60 @@ def keys_test():
     return r if r["ok"] else JSONResponse(r)
 
 
+@app.get("/api/models/live")
+def live_models(provider: str = "anthropic"):
+    """The models the saved key can actually use, straight from the provider, so the owner can pick any of
+    them (not only the ones Veyro ships with). Claude: Anthropic Models API; Ollama: the local model list;
+    OpenAI-compatible providers: their /models endpoint."""
+    if provider not in PROVIDERS:
+        raise HTTPException(400, "unknown_provider")
+    key, _ = llm_key(provider)
+    if not key:
+        return JSONResponse({"ok": False, "code": "no_key"})
+    try:
+        if provider == "anthropic":
+            import anthropic
+            from .anthropic_relay import base_url as relay_url
+            client = anthropic.Anthropic(api_key=key, base_url=relay_url(), max_retries=1, timeout=20)
+            models = [{"id": m.id, "name": m.display_name} for m in client.models.list(limit=100)]
+        elif provider == "ollama":
+            import httpx
+            base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1").rstrip("/").removesuffix("/v1")
+            r = httpx.get(f"{base}/api/tags", timeout=10)
+            r.raise_for_status()
+            models = [{"id": m["name"], "name": m["name"]} for m in r.json().get("models", [])]
+        elif provider in LIST_BASE:
+            import openai
+            client = openai.OpenAI(api_key=key, base_url=LIST_BASE[provider], max_retries=1, timeout=20)
+            models = sorted(({"id": m.id, "name": m.id} for m in client.models.list()), key=lambda m: m["id"])
+        else:
+            return JSONResponse({"ok": False, "code": "not_listable"})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "code": runner.classify(e)})
+    return {"models": models[:500]}
+
+
 @app.delete("/api/keys/{provider}")
 def remove_key(provider: str):
     if provider not in PROVIDERS:
         raise HTTPException(400, "unknown_provider")
     delete_secret(f"llm:{provider}")
+    if PROVIDERS[provider]["env"]:
+        runner.unset_env(PROVIDERS[provider]["env"])
     return settings_payload()
 
 
 # ---------------------------------------------------------------- market
 @app.get("/api/market/status")
 def market_status():
-    s = market.market_status()
-    return s or {"open": None, "status": "unavailable"}
+    """US status from Yahoo (it knows holidays) plus both markets from the trading calendars, so a Saudi user
+    isn't shown the US market as "the market"."""
+    from .calendars import is_open
+    s = market.market_status() or {"open": None, "status": "unavailable"}
+    mk = {m: is_open(m) for m in ("sa", "us")}
+    if s.get("open") is not None:
+        mk["us"]["open"] = s["open"]
+    return {**s, "markets": mk}
 
 
 @app.get("/api/market/history/{ticker}")
@@ -229,17 +344,27 @@ def market_history(ticker: str):
     return {"available": True, **h}
 
 
+@app.get("/api/market/search")
+def market_search(q: str = ""):
+    """Find a ticker by company name (Arabic or English) or symbol."""
+    q = q.strip()
+    if not 1 <= len(q) <= 60:
+        return {"results": []}
+    return {"results": [r for r in market.search(q, 8) if TICKER_RE.match(r["symbol"])]}
+
+
 @app.get("/api/market/screeners")
 def screeners():
     return {"screeners": market.SCREENERS}
 
 
 @app.get("/api/market/screen/{screener}")
-def run_screen(screener: str, count: int = 5):
+def run_screen(screener: str, count: int = 5, budget: float | None = None, currency: str = "USD"):
     if screener not in market.SCREENERS:
         raise HTTPException(400, "unknown_screener")
     try:
-        return {"available": True, "candidates": market.screen(screener, max(1, min(count, 5)))}
+        return {"available": True, "candidates": market.screen(screener, max(1, min(count, MAX_SCREEN)),
+                                                               _max_price(_budget(budget, currency), screener))}
     except market.MarketDataUnavailable:
         return {"available": False, "candidates": []}
 
@@ -250,12 +375,43 @@ class SessionIn(BaseModel):
     lang: str = "ar"
     demo: bool = False
     trade_date: str | None = None   # YYYY-MM-DD, today or earlier (point-in-time analysis)
+    budget: float | None = None     # money the owner wants to invest; the Portfolio Manager sees it as free cash
+    budget_currency: str = "USD"
 
 
-def _trade_date(d: str | None) -> str | None:
+def _budget(amount: float | None, currency: str) -> dict | None:
+    if amount is None or amount <= 0:
+        return None
+    if currency not in ("USD", "SAR") or amount > 1e10:
+        raise HTTPException(400, "bad_budget")
+    return {"amount": round(float(amount), 2), "currency": currency}
+
+
+def _cap_reached(run: bool = True):
+    """Refuse new paid analyses once this month's cap is reached, counting the run about to start at its high
+    estimate (demo runs are free and always allowed). run=False: the caller reserves its own estimate (backtest)."""
+    from . import budget
+    if budget.blocked(budget.next_run_high() if run else 0.0):
+        return JSONResponse({"ok": False, "code": "budget_cap", "spend": budget.spent()})
+    return None
+
+
+def _max_price(b: dict | None, screener: str | None = None) -> float | None:
+    """The budget in the screener market's currency (USD for the US lists, SAR for the Saudi ones), so only
+    affordable candidates are suggested."""
+    if not b:
+        return None
+    from .allocation import fx
+    cur = "SAR" if screener and market.screener_market(screener) == "sa" else "USD"
+    rate = fx(b["currency"], cur)
+    return b["amount"] * rate if rate else None
+
+
+def _trade_date(d: str | None, ticker: str | None = None) -> str | None:
     if not d:
         return None
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) or not ("2005-01-01" <= d <= runner.ny_today()):
+    latest = runner.today_for(ticker) if ticker else max(runner.today_for("X.SR"), runner.today_for("X"))
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) or not ("2005-01-01" <= d <= latest):
         raise HTTPException(400, "bad_date")
     return d
 
@@ -265,7 +421,13 @@ async def create_session(s: SessionIn):
     if s.lang not in ("ar", "en"):
         raise HTTPException(400, "invalid_lang")
     t = _ticker(s.ticker)
-    sid = runner.start_session(asyncio.get_running_loop(), t, s.lang, s.demo, trade_date=_trade_date(s.trade_date))
+    if not s.demo and (r := _cap_reached()):
+        return r
+    try:
+        sid = runner.start_session(asyncio.get_running_loop(), t, s.lang, s.demo, trade_date=_trade_date(s.trade_date, t),
+                                   budget=_budget(s.budget, s.budget_currency))
+    except runner.StillStopping:
+        return JSONResponse({"ok": False, "code": "still_stopping"})
     return {"id": sid}
 
 
@@ -275,9 +437,22 @@ def cancel(sid: str):
 
 
 @app.get("/api/sessions")
-def sessions():
+def sessions(light: bool = False):
     rows = db.list_sessions()
+    if light:   # ids and status only, no live prices (fast)
+        return {"sessions": [{"id": r["id"], "status": r["status"], "ticker": r["ticker"]} for r in rows]}
+    _prefetch_prices(rows)
     return {"sessions": [enrich(r) for r in rows]}
+
+
+def _prefetch_prices(rows: list[dict]) -> None:
+    """Warm the quote cache for every distinct ticker/benchmark in parallel (was one slow call per row)."""
+    from concurrent.futures import ThreadPoolExecutor
+    syms = {r["ticker"] for r in rows if r.get("status") == "done"}
+    syms |= {((r.get("config") or {}).get("benchmark")) or runner.benchmark_for(r["ticker"]) for r in rows if r.get("status") == "done"}
+    if syms:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(market.last_price, syms))
 
 
 def enrich(r: dict) -> dict:
@@ -325,7 +500,7 @@ def translate(tid: int, body: TranslateIn):
     import os
     runner.activate_key(provider, key)
     from .voice import Voice
-    v = Voice(provider, quick)
+    v = Voice(provider, quick, what="translate")
     try:
         if body.what == "detail_ar":
             val = v.translate_detail(t["detail_en"])
@@ -368,7 +543,7 @@ def verdict_text(sid: str, body: VerdictTextIn):
     runner.activate_key(provider, key)
     from .voice import Voice
     try:
-        out = Voice(provider, quick).verdict(s["ticker"], s["rating"], pm["detail_en"], body.lang)
+        out = Voice(provider, quick, what="translate").verdict(s["ticker"], s["rating"], pm["detail_en"], body.lang)
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "code": runner.classify(e)})
     texts[body.lang] = {"line": out["line"], "reason": out["reason"]}
@@ -381,33 +556,55 @@ def verdict_text(sid: str, body: VerdictTextIn):
 class ScanIn(BaseModel):
     kind: str  # 'watchlist' | 'screener'
     tickers: list[str] = []
+    reuse: bool = True              # reopen today's finished analysis of a stock instead of paying again
+    economy_top: int | None = None  # economy mode: free price pre-screen, full analysis only on the best N
+    prescreen_mode: str = "momentum"  # 'momentum' | 'steady' | 'value' | 'quality' 
     screener: str | None = None
     count: int = 3
     lang: str = "ar"
     demo: bool = False
+    budget: float | None = None
+    budget_currency: str = "USD"
 
 
+def _loop() -> asyncio.AbstractEventLoop:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return MAIN_LOOP
+
+
+# Plain "def": the pre-screen, screeners and FX lookups are network calls; FastAPI runs this in a worker
+# thread so the event loop (and every live WebSocket) keeps flowing meanwhile.
 @app.post("/api/scans")
-async def create_scan(s: ScanIn):
+def create_scan(s: ScanIn):
     if s.lang not in ("ar", "en"):
         raise HTTPException(400, "invalid_lang")
+    if not s.demo and (r := _cap_reached()):
+        return r
     source = None
     if s.kind == "watchlist":
         tickers = list(dict.fromkeys(_ticker(t) for t in s.tickers))
-        if not 1 <= len(tickers) <= 5:
+        if not 1 <= len(tickers) <= MAX_BATCH:
             raise HTTPException(400, "watchlist_size")
     elif s.kind == "screener":
         if s.screener not in market.SCREENERS:
             raise HTTPException(400, "unknown_screener")
         try:
-            source = market.screen(s.screener, max(1, min(s.count, 5)))
+            source = market.screen(s.screener, max(1, min(s.count, MAX_SCREEN)), _max_price(_budget(s.budget, s.budget_currency), s.screener))
         except market.MarketDataUnavailable:
             raise HTTPException(502, "screener_unavailable") from None
         tickers = [c["symbol"] for c in source]
     else:
         raise HTTPException(400, "bad_kind")
-    scan_id = runner.start_scan(asyncio.get_running_loop(), s.kind, tickers, s.screener, source, s.lang, s.demo)
-    return {"id": scan_id, "tickers": tickers, "source": source,
+    prescreen = None
+    if s.economy_top and 0 < s.economy_top < len(tickers):
+        from . import extras
+        prescreen = extras.prescreen(tickers, s.prescreen_mode)
+        tickers = [r["ticker"] for r in prescreen if r["score"] is not None][:s.economy_top] or tickers[:s.economy_top]
+    scan_id = runner.start_scan(_loop(), s.kind, tickers, s.screener, source, s.lang, s.demo,
+                                budget=_budget(s.budget, s.budget_currency), reuse=s.reuse and not s.demo)
+    return {"id": scan_id, "tickers": tickers, "source": source, "prescreen": prescreen,
             "estimate": runner.estimate(*runner.settings_models(), sessions=len(tickers)) if not s.demo else None}
 
 
@@ -425,6 +622,27 @@ def scan(scan_id: str):
     return s
 
 
+@app.get("/api/scans/{scan_id}/allocation")
+def scan_allocation(scan_id: str, budget: float, currency: str = "USD"):
+    """Leo's budget plan across a finished watchlist or scan."""
+    from . import allocation
+    b = _budget(budget, currency)
+    s = db.get_scan(scan_id)
+    if not s or not b:
+        raise HTTPException(404, "not_found")
+    return allocation.plan(s["sessions"], b["amount"], b["currency"])
+
+
+@app.get("/api/sessions/{sid}/allocation")
+def session_allocation(sid: str, budget: float, currency: str = "USD"):
+    from . import allocation
+    b = _budget(budget, currency)
+    s = db.get_session(sid)
+    if not s or not b:
+        raise HTTPException(404, "not_found")
+    return allocation.plan([s], b["amount"], b["currency"])
+
+
 @app.post("/api/scans/{scan_id}/cancel")
 def cancel_scan(scan_id: str):
     ev = runner.SCAN_CANCEL.get(scan_id)
@@ -435,6 +653,9 @@ def cancel_scan(scan_id: str):
 
 # ---------------------------------------------------------------- websockets
 async def _pump(ws: WebSocket, bus: runner.Bus | None):
+    if not _ws_ok(ws):
+        await ws.close(code=1008)
+        return
     await ws.accept()
     if bus is None:
         await ws.send_json({"type": "error", "code": "not_found"})
@@ -459,12 +680,69 @@ async def _pump(ws: WebSocket, bus: runner.Bus | None):
 
 @app.websocket("/ws/sessions/{sid}")
 async def ws_session(ws: WebSocket, sid: str):
-    await _pump(ws, runner.BUSES.get(sid))
+    bus = runner.BUSES.get(sid)
+    if bus is None:   # finished long ago and pruned from memory: rebuild it from the database (no model calls)
+        s = db.get_session(sid)
+        if s and s["status"] != "running":
+            from . import extras
+            bus = runner.BUSES[sid] = runner.Bus(asyncio.get_running_loop())
+            await asyncio.to_thread(extras.replay, sid)
+    await _pump(ws, bus)
 
 
 @app.websocket("/ws/scans/{scan_id}")
 async def ws_scan(ws: WebSocket, scan_id: str):
     await _pump(ws, runner.SCAN_BUSES.get(scan_id))
+
+
+# ---------------------------------------------------------------- live board
+@app.get("/api/live/catalog")
+def live_catalog():
+    from . import beginner, live
+    mk = beginner.market_status("both")
+    y = market.market_status()          # Yahoo knows US holidays; prefer it over regular hours when available
+    if y and y.get("open") is not None:
+        mk["us"]["open"] = bool(y["open"])
+    return {**live.catalog(), "markets": mk}
+
+
+@app.websocket("/ws/live")
+async def ws_live(ws: WebSocket):
+    """Streams quote updates for the symbols the screen asks for ({"want": [...]}), batched every 250 ms."""
+    from . import live
+    if not _ws_ok(ws):
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    hub = live.HUB
+    hub.start()
+    loop = asyncio.get_running_loop()
+    q, snap = hub.subscribe(loop, set())
+
+    async def reader():
+        while True:
+            msg = await ws.receive_json()
+            want = {str(x)[:20].upper() for x in (msg.get("want") or [])[:120] if TICKER_RE.match(str(x).upper()) or str(x).upper() in live.GOLD_G or str(x).upper() in live.base_symbols()}
+            await ws.send_json({"type": "snapshot", "quotes": hub.update_want(q, want), "stream": hub.stream_ok})
+
+    rtask = asyncio.create_task(reader())
+    try:
+        while not rtask.done():
+            try:
+                batch = await asyncio.wait_for(q.get(), timeout=10)
+            except asyncio.TimeoutError:
+                await ws.send_json({"type": "ping", "stream": hub.stream_ok})
+                continue
+            await asyncio.sleep(0.25)          # gather a burst of ticks into one frame
+            while not q.empty():
+                batch += q.get_nowait()
+            latest = {x["symbol"]: x for x in batch}
+            await ws.send_json({"type": "ticks", "quotes": list(latest.values()), "stream": hub.stream_ok})
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        rtask.cancel()
+        hub.unsubscribe(q)
 
 
 # ---------------------------------------------------------------- Albie: world news
@@ -562,6 +840,7 @@ def _framework_cfg() -> dict:
                 "backend_url": relay_url() if provider == "anthropic" else None,
                 "output_language": "English", "max_debate_rounds": team["debate_rounds"],
                 "max_risk_discuss_rounds": team["risk_rounds"], **runner.reasoning_config(provider),
+                "benchmark_map": runner.benchmark_map(),
                 "results_dir": str(TA_HOME / "logs"), "data_cache_dir": str(TA_HOME / "cache"),
                 "memory_log_path": str(TA_HOME / "memory" / "trading_memory.md")})
     return cfg
@@ -609,12 +888,20 @@ def start_backtest(b: BacktestIn):
     key, _ = llm_key(provider)
     if not key:
         return JSONResponse({"ok": False, "code": "no_key"})
+    if r := _cap_reached(run=False):
+        return r
     if PROVIDERS[provider]["env"]:
         import os
         runner.activate_key(provider, key)
     job = {"id": uuid.uuid4().hex[:10], "tickers": tickers, "dates": dates, "cells": cells, "status": "running",
            "done": 0, "summary": None, "failures": [], "estimate": runner.estimate(provider, quick, deep, sessions=cells)}
     BACKTESTS[job["id"]] = job
+    from . import budget
+    # The framework's backtest takes no usage callback, so its tokens can't be counted: its high estimate is
+    # recorded against this month's cap instead (over-counting is safer than a backtest that costs "$0").
+    # A model with no known price has no estimate: the backtest is counted as unpriced, not as $0.
+    high = job["estimate"].get("high")
+    budget.record_extra(float(high) if high is not None else None, f"backtest {job['id']} ({cells} cells)")
 
     def work():
         from pathlib import Path
@@ -708,6 +995,7 @@ class AssistIn(BaseModel):
     alerts_enabled: bool | None = None
     alert_threshold: float | None = None
     alerts_news: bool | None = None
+    morning_count: int | None = None
     ui_lang: str | None = None
 
 
@@ -720,11 +1008,13 @@ def put_assistant(p: AssistIn):
 
 
 @app.post("/api/assistant/morning/run")
-async def morning_now():
+def morning_now():
     """Run the morning report now (the user pressed the button)."""
     if not assistant.favorites():
         return JSONResponse({"ok": False, "code": "no_favorites"})
-    sid = assistant.run_morning(asyncio.get_running_loop())
+    if r := _cap_reached():
+        return r
+    sid = assistant.run_morning(_loop())
     return {"scan_id": sid} if sid else JSONResponse({"ok": False, "code": "no_key"})
 
 
@@ -770,6 +1060,291 @@ def ask_history(sid: str):
 @app.get("/api/learning")
 def learning_card():
     return assistant.learning(enrich)
+
+
+_TRUST_CACHE: dict = {}
+
+
+def _trust_numbers() -> dict:
+    rows = db.list_sessions(500)
+    real = [r for r in rows if r["mode"] == "real" and r["status"] == "done"]
+    key = (len(real), max((r.get("finished_at") or "" for r in real), default=""))
+    hit = _TRUST_CACHE.get("v")
+    if hit and hit[0] == key and time.time() - hit[1] < 600:
+        return hit[2]
+    out = assistant.trust([{**r, "benchmark": ((r.get("config") or {}).get("benchmark")) or runner.benchmark_for(r["ticker"])} for r in real])
+    _TRUST_CACHE["v"] = (key, time.time(), out)
+    return out
+
+
+@app.get("/api/trust")
+def trust():
+    """The trust dashboard: how the team's calls actually did at fixed horizons, by month, rating and model."""
+    from . import extras
+    return {**_trust_numbers(), "paper": extras.paper_view()["totals"]}
+
+
+@app.get("/api/trust/rating/{rating}")
+def trust_for_rating(rating: str):
+    """Shown next to a verdict: how often past calls of this kind were right, with its uncertainty."""
+    t = _trust_numbers()
+    return {"rating": rating, "horizon": t["horizon"], "min_sample": t["min_sample"],
+            **(t["by_rating"].get(rating) or {"n": 0, "hits": 0, "hit_rate": None, "ci_low": None, "ci_high": None, "enough": False})}
+
+
+@app.get("/api/spend")
+def spend():
+    from . import budget
+    return budget.spent()
+
+
+# ---------------------------------------------------------------- reuse, virtual portfolio, price alerts
+@app.get("/api/reusable")
+def sessions_reusable(ticker: str, trade_date: str | None = None):
+    from . import extras
+    return {"session": extras.reusable(_ticker(ticker), _trade_date(trade_date))}
+
+
+@app.post("/api/sessions/{sid}/replay")
+def session_replay(sid: str):
+    """Show a finished analysis again in the Office (rebuilt from the database, no model calls)."""
+    from . import extras
+    s = db.get_session(sid)
+    if not s or s["status"] != "done":
+        raise HTTPException(404, "not_found")
+    if sid not in runner.BUSES or not runner.BUSES[sid].closed:
+        runner.BUSES[sid] = runner.Bus(_loop())
+        extras.replay(sid)
+    return {"id": sid}
+
+
+class PaperIn(BaseModel):
+    ticker: str
+    shares: float = Field(gt=0, le=1e7)
+    session_id: str | None = None
+    rating: str | None = None
+
+
+@app.get("/api/paper")
+def paper():
+    from . import extras
+    return extras.paper_view()
+
+
+@app.post("/api/paper")
+def paper_add(p: PaperIn):
+    from . import extras
+    try:
+        return extras.paper_add(_ticker(p.ticker), p.shares, p.session_id, p.rating)
+    except ValueError:
+        return JSONResponse({"ok": False, "code": "no_price"})
+
+
+class PaperPlanIn(BaseModel):
+    items: list[PaperIn]
+
+
+@app.post("/api/paper/plan")
+def paper_plan(p: PaperPlanIn):
+    from . import extras
+    out, added, failed = extras.paper_view(), [], []
+    for it in p.items[:60]:
+        try:
+            out = extras.paper_add(_ticker(it.ticker), it.shares, it.session_id, it.rating)
+            added.append(it.ticker)
+        except ValueError:
+            failed.append(it.ticker)      # no price right now: say so instead of pretending
+    if not added:
+        return JSONResponse({"ok": False, "code": "no_price", "failed": failed})
+    return {**out, "added": added, "failed": failed}
+
+
+@app.post("/api/paper/{pid}/close")
+def paper_close(pid: int):
+    from . import extras
+    try:
+        return extras.paper_close(pid)
+    except ValueError:
+        return JSONResponse({"ok": False, "code": "no_price"})
+
+
+@app.delete("/api/paper/{pid}")
+def paper_delete(pid: int):
+    from . import extras
+    return extras.paper_remove(pid)
+
+
+class PriceAlertIn(BaseModel):
+    symbol: str
+    op: str
+    value: float
+
+
+@app.get("/api/price_alerts")
+def price_alerts_list():
+    from . import extras
+    return {"alerts": extras.price_alerts()}
+
+
+@app.post("/api/price_alerts")
+def price_alerts_add(a: PriceAlertIn):
+    from . import extras, live
+    sym = a.symbol.strip().upper()
+    if not (TICKER_RE.match(sym) or sym in live.base_symbols()):
+        raise HTTPException(400, "invalid_ticker")
+    try:
+        return {"alerts": extras.add_price_alert(sym, a.op, a.value)}
+    except ValueError:
+        raise HTTPException(400, "bad_alert") from None
+
+
+@app.delete("/api/price_alerts/{aid}")
+def price_alerts_delete(aid: int):
+    from . import extras
+    return {"alerts": extras.delete_price_alert(aid)}
+
+
+class PriceIn(BaseModel):
+    model: str
+    input: float = 0.0    # USD per 1M input tokens; 0 removes the entry
+    output: float = 0.0
+
+
+@app.put("/api/prices")
+def put_price(p: PriceIn):
+    """The owner's price for a model Veyro has no price for (from the provider's pricing page), so the cap can count it."""
+    if not runner.MODEL_ID_RE.match(p.model) or not (0 <= p.input <= 1000 and 0 <= p.output <= 1000):
+        raise HTTPException(400, "bad_price")
+    prices = db.get_setting("custom_prices") or {}
+    if p.input == 0 and p.output == 0:
+        prices.pop(p.model, None)
+    else:
+        prices[p.model] = [p.input, p.output]
+    db.set_setting("custom_prices", prices)
+    return settings_payload()
+
+
+@app.get("/api/fx")
+def fx_rate(src: str, dst: str):
+    """Units of dst per 1 src (Yahoo), e.g. to compare an analysis's cost in USD with a budget in SAR."""
+    from .allocation import fx
+    if not (re.fullmatch(r"[A-Z]{3}", src) and re.fullmatch(r"[A-Z]{3}", dst)):
+        raise HTTPException(400, "bad_currency")
+    return {"rate": fx(src, dst)}
+
+
+# ---------------------------------------------------------------- broker fees (entered by the owner; never guessed)
+class FeesIn(BaseModel):
+    market: str
+    rate: float = 0.0      # fraction of the trade value, e.g. 0.00155
+    minimum: float = 0.0   # in the market's currency
+    vat: float = 0.0       # e.g. 0.15
+
+
+@app.put("/api/fees")
+def put_fees(f: FeesIn):
+    from . import allocation
+    try:
+        allocation.save_fees(f.market, f.rate, f.minimum, f.vat)
+    except ValueError:
+        raise HTTPException(400, "bad_fees") from None
+    return settings_payload()
+
+
+# ---------------------------------------------------------------- optional Sharia screen
+class ShariaIn(BaseModel):
+    symbols: list[str] = Field(max_length=80)
+    method: str | None = None
+
+
+@app.post("/api/sharia/screen")
+def sharia_screen(b: ShariaIn):
+    """Badges for the screens that list stocks. Separate from any analysis, so it never slows one down."""
+    if b.method is not None and b.method not in sharia.METHODS:
+        raise HTTPException(400, "bad_method")
+    syms = [t for t in (x.strip().upper() for x in b.symbols) if TICKER_RE.match(t)]
+    return {"results": sharia.screen(syms, b.method), "method": b.method or sharia.settings()["method"],
+            "disclaimer": {lg: sharia.disclaimer(lg) for lg in ("ar", "en")}}
+
+
+# ---------------------------------------------------------------- free screen without AI (a filter, not advice)
+class FreeScreenIn(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=25)
+
+
+@app.post("/api/screen/free")
+def free_screen(b: FreeScreenIn):
+    """Financial health (Altman Z''), quality (Piotroski F-score), trend and valuation from free data, then a
+    screening verdict with its reasons. No model call, no cost. Each verdict is logged to be scored later."""
+    from . import screening
+    syms = [t for t in dict.fromkeys(x.strip().upper() for x in b.symbols) if TICKER_RE.match(t)]
+    if not syms:
+        raise HTTPException(400, "invalid_ticker")
+    return {"results": screening.screen(syms), "source": market.SOURCE}
+
+
+@app.get("/api/screen/free/track")
+def free_screen_track():
+    """How stocks that passed, were watched or were excluded did against their index 20 and 60 sessions later."""
+    from . import screening
+    return screening.track()
+
+
+# ---------------------------------------------------------------- beginner mode
+class BeginnerIn(BaseModel):
+    amount: float = Field(gt=0, le=1e9)
+    currency: str = "SAR"
+    market: str = "sa"        # 'sa' | 'us' | 'both'
+    risk: str = "balanced"    # 'cautious' | 'balanced' | 'bold'
+    count: int = 3
+
+
+def _beginner_args(b: BeginnerIn) -> BeginnerIn:
+    if b.currency not in ("USD", "SAR") or b.market not in ("sa", "us", "both") or b.risk not in ("cautious", "balanced", "bold"):
+        raise HTTPException(400, "bad_profile")
+    b.count = max(1, min(5, b.count))
+    return b
+
+
+@app.post("/api/beginner/suggest")
+def beginner_suggest(b: BeginnerIn):
+    """Beginner-friendly companies the owner can afford with this amount (real prices)."""
+    from . import beginner
+    b = _beginner_args(b)
+    return beginner.suggest(b.amount, b.currency, b.market, b.risk, b.count)
+
+
+class BeginnerStartIn(BeginnerIn):
+    tickers: list[str]
+    lang: str = "ar"
+    demo: bool = False
+
+
+@app.post("/api/beginner/start")
+def beginner_start(b: BeginnerStartIn):
+    from . import beginner
+    _beginner_args(b)
+    if b.lang not in ("ar", "en"):
+        raise HTTPException(400, "invalid_lang")
+    tickers = list(dict.fromkeys(_ticker(t) for t in b.tickers))[:5]
+    if not tickers:
+        raise HTTPException(400, "watchlist_size")
+    if not b.demo and (r := _cap_reached()):
+        return r
+    budget = _budget(b.amount, b.currency)
+    scan_id = runner.start_scan(_loop(), "beginner", tickers, None, None, b.lang, b.demo, budget=budget)
+    beginner.save_profile(scan_id, {"amount": budget["amount"], "currency": b.currency, "market": b.market, "risk": b.risk})
+    return {"id": scan_id, "tickers": tickers, "source": None,
+            "estimate": runner.estimate(*runner.settings_models(), sessions=len(tickers)) if not b.demo else None}
+
+
+@app.post("/api/beginner/{scan_id}/guide")   # POST: the first call may make a paid model call
+def beginner_guide(scan_id: str, lang: str = "ar"):
+    from . import beginner
+    if lang not in ("ar", "en"):
+        raise HTTPException(400, "invalid_lang")
+    g = beginner.guide(scan_id, lang)
+    return JSONResponse(g) if g.get("ok") is False else g
 
 
 # ---------------------------------------------------------------- about

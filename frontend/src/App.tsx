@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { setShariaConf } from "./extras/Sharia";
 import { api, type Settings } from "./api";
 import { click, unlockAudio } from "./audio";
 import { usePrefs } from "./prefs";
@@ -12,10 +13,12 @@ import { OrdersScreen } from "./exec/OrdersScreen";
 import { ProposeButton } from "./exec/OrderTicket";
 import { TradingSettings } from "./exec/TradingSettings";
 import { WorldNews } from "./screens/WorldNews";
+import { LiveBoard } from "./screens/LiveBoard";
+import { GlossaryModal } from "./extras/Glossary";
 import { Welcome } from "./components/Welcome";
 import { AlertsBell, AssistantProvider } from "./assistant/Assistant";
 
-type Screen = "office" | "world" | "report" | "history" | "orders" | "settings";
+type Screen = "office" | "live" | "world" | "report" | "history" | "orders" | "settings";
 
 const LEAF = (
   <svg width="42" height="42" viewBox="0 0 12 12" shapeRendering="crispEdges" aria-hidden="true">
@@ -34,48 +37,100 @@ export default function App() {
 function Shell() {
   const { t, prefs, set, night } = usePrefs();
   const [screen, setScreen] = useState<Screen>("office");
+  // Every screen stays mounted after its first visit, so what you typed, searched or opened is still
+  // there when you come back (screens refresh their data when shown again).
+  const [seen, setSeen] = useState<Set<Screen>>(() => new Set<Screen>(["office"]));
+  useEffect(() => { setSeen((v) => (v.has(screen) ? v : new Set(v).add(screen))); }, [screen]);
   const [reportId, setReportId] = useState<string | null>(null);
+  const reportRef = useRef<string | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [market, setMarket] = useState<{ open: boolean | null } | null>(null);
+  const [market, setMarket] = useState<{ open: boolean | null; markets?: Record<"sa" | "us", { open: boolean; holidays_known: boolean }> } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [glossary, setGlossary] = useState(false);
   const [pendingStart, setPendingStart] = useState<{ ticker: string; trade_date: string; nonce: number } | null>(null);
   const [pendingScan, setPendingScan] = useState<{ id: string; nonce: number } | null>(null);
-  const openMorning = () => { api.get<{ morning_scan: string | null }>("/api/alerts").then((r) => { if (r.morning_scan) setPendingScan({ id: r.morning_scan, nonce: Date.now() }); go("office"); }).catch(() => go("office")); };
+  const openMorning = () => { api.get<{ morning_scan: string | null }>("/api/alerts").then((r) => { if (r.morning_scan) setPendingScan({ id: r.morning_scan, nonce: Date.now() }); goOfficeTop(); }).catch(() => goOfficeTop()); };
 
   useEffect(() => { api.get<Settings>("/api/settings").then(setSettings).catch(() => {}); }, []);
+  useEffect(() => { setShariaConf(settings?.sharia); }, [settings]);
+  // "Run it now" in Settings (and other places) ask the shell to follow a scan in the Office.
   useEffect(() => {
-    const load = () => api.get<{ open: boolean | null }>("/api/market/status").then(setMarket).catch(() => setMarket({ open: null }));
+    const f = (e: Event) => { const id = (e as CustomEvent<string>).detail; if (id) { setPendingScan({ id, nonce: Date.now() }); switchTo("office"); } };
+    window.addEventListener("veyro:follow-scan", f);
+    return () => window.removeEventListener("veyro:follow-scan", f);
+  }, []);
+  useEffect(() => {
+    const load = () => api.get<{ open: boolean | null; markets?: Record<"sa" | "us", { open: boolean; holidays_known: boolean }> }>("/api/market/status").then(setMarket).catch(() => setMarket({ open: null }));
     load(); const h = setInterval(load, 60_000); return () => clearInterval(h);
   }, []);
 
-  const go = (s: Screen) => { click(); unlockAudio(); setScreen(s); };
-  const openReport = useCallback((id: string) => { setReportId(id); setScreen("report"); }, []);
+  // Each screen stays mounted and keeps its own scroll position: leaving remembers it, coming back restores it
+  // (a screen seen for the first time starts at the top).
+  const scrollOf = useRef<Partial<Record<Screen, number>>>({});
+  const current = useRef<Screen>(screen);
+  const switchTo = useCallback((s: Screen) => {
+    scrollOf.current[current.current] = window.scrollY;
+    current.current = s;
+    setScreen(s);
+  }, []);
+  useLayoutEffect(() => { window.scrollTo(0, scrollOf.current[screen] ?? 0); }, [screen]);
+  // the sticky header's height, so sticky bars inside screens (the Report's section menu) sit just under it
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const set = () => document.documentElement.style.setProperty("--topbar-h",
+      getComputedStyle(el).position === "sticky" ? `${el.offsetHeight}px` : "0px");
+    const ro = new ResizeObserver(set); ro.observe(el); set();
+    window.addEventListener("resize", set);
+    return () => { ro.disconnect(); window.removeEventListener("resize", set); };
+  }, []);
+  const go = (s: Screen) => { click(); unlockAudio(); switchTo(s); };
+  // Sent to the Office to start or watch something: land on the start bar and stage, not the old scroll spot.
+  const goOfficeTop = () => { scrollOf.current.office = 0; go("office"); };
+  const openReport = useCallback((id: string) => {
+    if (id !== reportRef.current) scrollOf.current.report = 0;   // another session's report starts at the top
+    reportRef.current = id; setReportId(id); switchTo("report");
+  }, [switchTo]);
   const onBusy = useCallback((b: boolean) => setBusy(b), []);
+  // After a run ends, refresh settings so this month's spend (budget cap) is current.
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (wasBusy.current && !busy) api.get<Settings>("/api/settings").then(setSettings).catch(() => {});
+    wasBusy.current = busy;
+  }, [busy]);
 
+  const mk = market?.markets;
   const mkt = market?.open === true ? ["open", t.marketOpen] : market?.open === false ? ["closed", t.marketClosed] : ["", t.marketUnknown];
 
   return (
     <div className="app">
-      <header className="topbar">
+      <header className="topbar" ref={headerRef}>
         <button className="brand" onClick={() => go("office")} aria-label={t.brand}>
           {LEAF}
           <span style={{ textAlign: "start" }}><b>{t.brand}</b><small>{t.tagline}</small></span>
         </button>
         <nav className="nav" aria-label={t.nav}>
-          {(["office", "world", "report", "history", "orders", "settings"] as Screen[]).map((s) => (
+          {(["office", "live", "world", "report", "history", "orders", "settings"] as Screen[]).map((s) => (
             <button key={s} className="tab" aria-current={screen === s ? "page" : undefined} onClick={() => go(s)}>
-              {s === "orders" ? EXD[prefs.lang].orders : s === "world" ? (prefs.lang === "ar" ? "أخبار العالم" : "World news") : t[s]}
+              {s === "orders" ? EXD[prefs.lang].orders : s === "world" ? (prefs.lang === "ar" ? "أخبار العالم" : "World news")
+                : s === "live" ? <><span className="navlive" aria-hidden="true" />{prefs.lang === "ar" ? "مباشر" : "Live"}</> : t[s]}
             </button>
           ))}
         </nav>
         <div className="tools">
           <ModeBadge />
           <AlertsBell onOpenMorning={openMorning} />
-          <span className={`chip mkt ${mkt[0]}`} role="status"><i />{mkt[1]}</span>
+          <button className="pill btn" onClick={() => { click(); setGlossary(true); }} aria-label={prefs.lang === "ar" ? "قاموس المصطلحات" : "Glossary"} title={prefs.lang === "ar" ? "قاموس المصطلحات" : "Glossary"}>📖</button>
+          {mk ? (["sa", "us"] as const).map((m) => (
+            <span key={m} className={`chip mkt ${mk[m].open ? "open" : "closed"}`} role="status" data-market={m}
+              title={mk[m].holidays_known ? undefined : (prefs.lang === "ar" ? "بالساعات العادية؛ العطل غير معروفة" : "regular hours; holidays not known")}>
+              <i />{m === "sa" ? (prefs.lang === "ar" ? "تداول" : "Tadawul") : (prefs.lang === "ar" ? "أمريكا" : "US")} · {mk[m].open ? (prefs.lang === "ar" ? "مفتوح" : "open") : (prefs.lang === "ar" ? "مقفل" : "closed")}</span>
+          )) : <span className={`chip mkt ${mkt[0]}`} role="status"><i />{mkt[1]}</span>}
           <button className="pill btn" onClick={() => set({ lang: prefs.lang === "ar" ? "en" : "ar" })} aria-label={t.langAria} lang={prefs.lang === "ar" ? "en" : "ar"}>{t.langBtn}</button>
           <button className="pill btn" onClick={() => set({ theme: night ? "day" : "night" })} aria-label={t.themeAria}>{night ? SUN : MOON}</button>
           <button className="pill btn" onClick={() => { unlockAudio(); set({ sound: !prefs.sound }); }} aria-label={t.soundAria} aria-pressed={prefs.sound} style={{ opacity: prefs.sound ? 1 : 0.6 }}>
-            {SPEAKER}<span>{prefs.sound ? t.sound : t.muted}</span>
+            {SPEAKER}<span className="pill-label">{prefs.sound ? t.sound : t.muted}</span>
           </button>
         </div>
       </header>
@@ -83,19 +138,22 @@ function Shell() {
       <main>
         {/* Office stays mounted so a running session keeps playing while you peek at other screens. */}
         <div hidden={screen !== "office"} className="stack">
-          <Office settings={settings} onOpenReport={openReport} onBusy={onBusy} marketOpen={market?.open ?? null} pendingStart={pendingStart} pendingScan={pendingScan}
+          <Office settings={settings} onOpenReport={openReport} onBusy={onBusy} marketOpen={market?.open ?? null} marketsOpen={market?.markets ?? null} pendingStart={pendingStart} pendingScan={pendingScan}
             renderVerdictExtra={(sid, tk, rating, demo) => <ProposeButton sessionId={sid} ticker={tk} rating={rating} demo={demo} />} />
         </div>
-        {screen === "report" && <Report sessionId={reportId} />}
-        {screen === "history" && <HistoryScreen onOpen={openReport} settings={settings}
-          onResume={(ticker, trade_date) => { setPendingStart({ ticker, trade_date, nonce: Date.now() }); go("office"); }} />}
-        {screen === "world" && <WorldNews />}
-        {screen === "orders" && <OrdersScreen onOpenSettings={() => go("settings")} />}
-        {screen === "settings" && <SettingsScreen settings={settings} onChange={setSettings} extra={<TradingSettings />} />}
+        {seen.has("report") && <div hidden={screen !== "report"}><Report sessionId={reportId} active={screen === "report"} /></div>}
+        {seen.has("history") && <div hidden={screen !== "history"}><HistoryScreen onOpen={openReport} settings={settings} active={screen === "history"}
+          onResume={(ticker, trade_date) => { setPendingStart({ ticker, trade_date, nonce: Date.now() }); goOfficeTop(); }} /></div>}
+        {seen.has("world") && <div hidden={screen !== "world"}><WorldNews /></div>}
+        {seen.has("live") && <div hidden={screen !== "live"}><LiveBoard active={screen === "live"}
+          onAnalyze={(tk) => { window.dispatchEvent(new CustomEvent("veyro:pick-ticker", { detail: tk })); goOfficeTop(); }} /></div>}
+        {seen.has("orders") && <div hidden={screen !== "orders"}><OrdersScreen onOpenSettings={() => go("settings")} active={screen === "orders"} /></div>}
+        {seen.has("settings") && <div hidden={screen !== "settings"}><SettingsScreen settings={settings} onChange={setSettings} extra={<TradingSettings />} /></div>}
       </main>
       <Welcome />
+      {glossary && <GlossaryModal onClose={() => setGlossary(false)} />}
       {busy && screen !== "office" && (
-        <button className="toast btn" style={{ border: 0, cursor: "pointer" }} onClick={() => go("office")}>{t.running} · {t.office}</button>
+        <button className="toast btn" style={{ border: 0, cursor: "pointer" }} onClick={goOfficeTop}>{t.running} · {t.office}</button>
       )}
     </div>
   );

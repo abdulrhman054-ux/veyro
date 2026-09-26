@@ -50,7 +50,7 @@ class FakeChat(BaseChatModel):
         elif "As the Portfolio Manager" in prompt:
             text = f"**Rating**: {rating}\n\n**Executive Summary**: [TEST] fake output.\n\n**Investment Thesis**: [TEST] fake."
         else:
-            text = "[TEST] Fake analysis output for pipeline verification. FINAL TRANSACTION PROPOSAL: **HOLD**"
+            text = "[TEST] Fake analysis output for pipeline verification (RSI, P/E and free cash flow are placeholders). FINAL TRANSACTION PROPOSAL: **HOLD**"
         msg = AIMessage(content=text, usage_metadata={"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
                         response_metadata={"model_name": self.model_name})
         return ChatResult(generations=[ChatGeneration(message=msg)])

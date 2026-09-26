@@ -1,0 +1,16 @@
+settings ar/1440: quick=['★ Claude Sonnet 5 · $2/$10', 'Claude Haiku 4.5 · $1/$5', 'Claude Opus 5.5 · $4/$20', 'Claude Fable 5.1 · $10/$50', 'Claude Opus 5 · $5/$25', 'Claude Fable 5 · $10/$50', 'Claude Opus 4.8 · $5/$25', 'Claude Opus 4.7 · $5/$25', 'Claude Opus 4.6 · $5/$25', 'Claude Sonnet 4.6 · $3/$15', '✎ نموذج آخر (اكتب المعرّف)…']
+  providers shown: ['Claude', 'OpenAI', 'DeepSeek']
+  after switching to OpenAI: quick=['★ gpt-6-luna', 'gpt-5.6-luna', 'gpt-5.6-terra', '✎ نموذج آخر (اكتب المعرّف)…']; estimate='التكلفة التقديرية\nالسعر غير معروف'
+  xl+contrast scrollWidth=1440
+  orders text: 'الأوامر\n\nكل أمر هنا يحتاج تأكيدك. تانك يحرس حدود المخاطرة، وبيب يبلغك إذا تنفّذ شي.\n\nأفحص حدود المخاطرة…\nالتنفيذ مغلق، وهذا الوضع الافتراضي.\nفيرو يعطيك توصيات فقط. ما فيه أي أوامر. إذا حاب تجرّب، فعّل «تجريبي» من الإعدادات المتقدمة. خطوة خطوة.\nافتح الإعدادات\nسجل التدقيق\nتصدير CSV\nالوقت\tالوضع\tالحدث\tا'
+settings en/1440: quick=['★ Claude Sonnet 5 · $2/$10', 'Claude Haiku 4.5 · $1/$5', 'Claude Opus 5.5 · $4/$20', 'Claude Fable 5.1 · $10/$50', 'Claude Opus 5 · $5/$25', 'Claude Fable 5 · $10/$50', 'Claude Opus 4.8 · $5/$25', 'Claude Opus 4.7 · $5/$25', 'Claude Opus 4.6 · $5/$25', 'Claude Sonnet 4.6 · $3/$15', '✎ Another model (type its ID)…']
+  providers shown: ['Claude', 'OpenAI', 'DeepSeek']
+  after switching to OpenAI: quick=['★ gpt-6-luna', 'gpt-5.6-luna', 'gpt-5.6-terra', '✎ Another model (type its ID)…']; estimate='Estimated cost\nprice unknown'
+  xl+contrast scrollWidth=1440
+  orders text: "Orders\n\nEvery order here needs your confirmation. Tank guards the risk limits and Pip tells you when something fills.\n\nChecking the risk limits…\nExecution is off, which is the default.\nVeyro gives recommendations only. No orders at all. If you'd like to try, turn on Paper in Advanced settings. One s"
+settings en/390: quick=['★ Claude Sonnet 5 · $2/$10', 'Claude Haiku 4.5 · $1/$5', 'Claude Opus 5.5 · $4/$20', 'Claude Fable 5.1 · $10/$50', 'Claude Opus 5 · $5/$25', 'Claude Fable 5 · $10/$50', 'Claude Opus 4.8 · $5/$25', 'Claude Opus 4.7 · $5/$25', 'Claude Opus 4.6 · $5/$25', 'Claude Sonnet 4.6 · $3/$15', '✎ Another model (type its ID)…']
+  providers shown: ['Claude', 'OpenAI', 'DeepSeek']
+  after switching to OpenAI: quick=['★ gpt-6-luna', 'gpt-5.6-luna', 'gpt-5.6-terra', '✎ Another model (type its ID)…']; estimate='Estimated cost\nprice unknown'
+  xl+contrast scrollWidth=390
+  orders text: "Orders\n\nEvery order here needs your confirmation. Tank guards the risk limits and Pip tells you when something fills.\n\nChecking the risk limits…\nExecution is off, which is the default.\nVeyro gives recommendations only. No orders at all. If you'd like to try, turn on Paper in Advanced settings. One s"
+console errors: []

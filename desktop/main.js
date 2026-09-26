@@ -11,15 +11,24 @@ const IS_PACKED = app.isPackaged;
 const RES = IS_PACKED ? process.resourcesPath : path.join(__dirname, "..");
 const PY = IS_PACKED ? path.join(RES, "python", "python.exe") : path.join(__dirname, "runtime", "python", "python.exe");
 const BACKEND = path.join(RES, "backend");
-// Portable data folder: next to the portable exe, or next to Veyro.exe in the unpacked folder.
+// Data folder: installed app -> the user's app-data folder (survives updates and uninstall);
+// portable exe / unpacked folder -> "Veyro-Data" next to it (an existing folder there is always kept).
 const BASE_DIR = process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(process.execPath);
-const DATA = IS_PACKED ? path.join(BASE_DIR, "Veyro-Data") : path.join(__dirname, "..", "data");
+const INSTALLED = IS_PACKED && !process.env.PORTABLE_EXECUTABLE_DIR && fs.existsSync(path.join(BASE_DIR, "Uninstall Veyro.exe"));
+const DATA = !IS_PACKED ? path.join(__dirname, "..", "data")
+  : INSTALLED && !fs.existsSync(path.join(BASE_DIR, "Veyro-Data")) ? path.join(app.getPath("appData"), "Veyro", "Veyro-Data")
+  : path.join(BASE_DIR, "Veyro-Data");
 const ICON = path.join(__dirname, "build", "icon.png");
 
-let win = null, splash = null, tray = null, backend = null, port = 8765, quitting = false, toldTray = false;
+let win = null, splash = null, tray = null, backend = null, port = 8765, quitting = false, toldTray = false, exitCode = null, fatal = false, exited = false;
 
-if (!app.requestSingleInstanceLock()) { app.quit(); }
-app.on("second-instance", () => { if (win) { win.show(); win.focus(); } });
+const GOT_LOCK = app.requestSingleInstanceLock();
+if (!GOT_LOCK) { app.quit(); }
+app.on("second-instance", () => {
+  if (win) { win.show(); win.focus(); return; }
+  if (splash) { splash.show(); splash.focus(); return; }
+  if (fatal) { app.relaunch(); quitAll(); }   // the first start failed and its error window is gone: start over
+});
 app.setAppUserModelId("com.veyro.app");   // Windows notifications come from "Veyro"
 
 function freePort(start) {
@@ -48,19 +57,24 @@ async function startBackend() {
   const log = fs.createWriteStream(path.join(DATA, "veyro-server.log"), { flags: "a" });
   backend = spawn(PY, ["-m", "veyro"], {
     cwd: BACKEND, windowsHide: true,
-    env: { ...process.env, VEYRO_PORT: String(port), VEYRO_DATA_DIR: DATA, PYTHONUTF8: "1", PYTHONNOUSERSITE: "1", PYTHONIOENCODING: "utf-8" },
+    // Bytecode ships precompiled (tools/build_desktop.py); never try to write .pyc into the install folder.
+    env: { ...process.env, VEYRO_PORT: String(port), VEYRO_DATA_DIR: DATA, PYTHONUTF8: "1", PYTHONNOUSERSITE: "1", PYTHONIOENCODING: "utf-8",
+           PYTHONDONTWRITEBYTECODE: "1", VEYRO_PARENT_PID: String(process.pid) },   // the backend exits if this app dies
   });
   backend.stdout.pipe(log); backend.stderr.pipe(log);
-  backend.on("exit", (code) => { if (!quitting) showFatal(code); });
-  for (let i = 0; i < 180; i++) {            // up to ~90 s on a slow first start
+  // If Python stops before a window exists, remember why; boot() shows it as soon as the splash is up.
+  // Once the error screen is up (e.g. after a start timeout killed it), its exit must not replace the real cause.
+  backend.on("exit", (code) => { exited = true; exitCode = code ?? "exit"; if (!quitting && !fatal && (win || splash)) showFatal(exitCode); });
+  for (let i = 0; i < 600; i++) {            // check often (open the window the moment it's ready), up to ~90 s
+    if (exitCode !== null) return false;     // it died: don't keep waiting
     if (await healthy()) return true;
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 150));
   }
   return false;
 }
 
 function stopBackend() {
-  if (backend && !backend.killed) {
+  if (backend && !backend.killed && !exited) {   // never taskkill a PID Windows may have given to another process
     try { execFile("taskkill", ["/PID", String(backend.pid), "/T", "/F"], { windowsHide: true }); } catch { /* already gone */ }
   }
 }
@@ -73,29 +87,40 @@ function splashHtml() {
   <style>@keyframes m{from{transform:translateX(-120%)}to{transform:translateX(300%)}}</style></body></html>`);
 }
 
+function quitAll() { quitting = true; stopBackend(); app.quit(); }
+
 function showFatal(code) {
+  fatal = true;
+  stopBackend();   // a backend that is alive but too slow must not keep running hidden
   const html = "data:text/html;charset=utf-8," + encodeURIComponent(`<!doctype html><html dir="rtl"><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#FBF6E9;font-family:Tahoma,sans-serif;color:#5C4331;text-align:center">
   <div><div style="font-size:28px;font-weight:800">صار خلل في تشغيل المكتب</div><div style="margin-top:8px">Veyro's engine stopped (${code}). Close and open Veyro again.</div>
-  <div style="margin-top:8px;font-size:13px;color:#7A6147">Veyro-Data/veyro-server.log</div></div></body></html>`);
-  if (win) win.loadURL(html); else if (splash) splash.loadURL(html);
+  <div style="margin-top:8px;font-size:13px;color:#7A6147">Veyro-Data/veyro-server.log</div>
+  <button onclick="window.close()" style="margin-top:16px;font:inherit;padding:8px 22px;border-radius:12px;border:0;background:#F2A43A;color:#fff;cursor:pointer">إغلاق · Close</button></div></body></html>`);
+  // The window the owner can see: the splash while the office is still loading (the main window is hidden then).
+  const w = splash && !splash.isDestroyed() ? splash : win;
+  if (!w) return;
+  w.loadURL(html).catch(() => {});
+  w.show(); w.focus();   // also when it was hidden in the tray
+  w.removeAllListeners("close");
+  w.on("closed", quitAll);   // closing the error window ends Veyro (no hidden process holding the single-instance lock)
 }
 
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
   tray.setToolTip("Veyro · فيرو");
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "فتح فيرو · Open Veyro", click: () => { win.show(); win.focus(); } },
+    { label: "فتح فيرو · Open Veyro", click: () => { if (win) { win.show(); win.focus(); } } },
     { type: "separator" },
     { label: "خروج · Quit", click: () => { quitting = true; app.quit(); } },
   ]));
-  tray.on("click", () => { win.show(); win.focus(); });
+  tray.on("click", () => { if (win) { win.show(); win.focus(); } });
 }
 
 async function boot() {
   splash = new BrowserWindow({ width: 520, height: 300, frame: false, resizable: false, backgroundColor: "#FBF6E9", icon: ICON, show: true });
   splash.loadURL(splashHtml());
-  const ok = await startBackend();
-  if (!ok) { showFatal("timeout"); return; }
+  const ok = await backendReady;
+  if (!ok) { showFatal(exitCode ?? "timeout"); return; }
 
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 980, minHeight: 680, show: false, backgroundColor: "#FBF6E9", title: "Veyro", icon: ICON,
@@ -107,7 +132,8 @@ async function boot() {
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) shell.openExternal(url); return { action: "deny" }; });
   win.webContents.on("will-navigate", (e, url) => { if (!url.startsWith(origin)) { e.preventDefault(); if (/^https?:\/\//.test(url)) shell.openExternal(url); } });
   win.webContents.session.setPermissionRequestHandler((_wc, perm, cb) => cb(perm === "notifications"));
-  await win.loadURL(origin);
+  try { await win.loadURL(origin); } catch { /* the engine stopped while loading: showFatal has the splash */ }
+  if (fatal) return;
   splash.destroy(); splash = null;
   win.show();
   createTray();
@@ -122,6 +148,8 @@ async function boot() {
   });
 }
 
-app.whenReady().then(boot);
+// Start Python straight away, in parallel with Electron's own start-up (the slowest part of launching).
+const backendReady = GOT_LOCK ? startBackend() : Promise.resolve(false);
+if (GOT_LOCK) app.whenReady().then(boot);
 app.on("before-quit", () => { quitting = true; stopBackend(); });
-app.on("window-all-closed", () => { /* stay in tray */ });
+app.on("window-all-closed", () => { if (fatal || !tray) quitAll(); /* otherwise stay in the tray */ });

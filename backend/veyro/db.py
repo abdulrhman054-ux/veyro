@@ -55,6 +55,30 @@ CREATE TABLE IF NOT EXISTS scans (
   mode TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS paper (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticker TEXT NOT NULL, shares REAL NOT NULL, entry_price REAL NOT NULL, currency TEXT,
+  bench TEXT, bench_entry REAL, opened_at TEXT NOT NULL, session_id TEXT, rating TEXT,
+  closed_at TEXT, exit_price REAL, bench_exit REAL, fee_in REAL, fee_out REAL, fx_usd_entry REAL, fx_usd_exit REAL
+);
+CREATE TABLE IF NOT EXISTS sharia_cache (      -- optional Sharia screen: raw free fundamentals per symbol, with the fetch date
+  symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS valuation_cache (   -- free pre-screen "value" mode: light company facts per symbol
+  symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fundamentals_cache (   -- free screen: two to four years of annual statement lines
+  symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS screen_log (           -- every free-screen verdict, scored later like the team's calls
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL, verdict TEXT NOT NULL, price REAL, bench TEXT,
+  bench_price REAL, screened_on TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS price_alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol TEXT NOT NULL, op TEXT NOT NULL,       -- 'above' | 'below'
+  value REAL NOT NULL, created_at TEXT NOT NULL, triggered_at TEXT, triggered_price REAL
+);
 """
 
 
@@ -84,6 +108,14 @@ def conn() -> sqlite3.Connection:
             if "config_json" not in cols:  # databases created before this column existed
                 _conn.execute("ALTER TABLE sessions ADD COLUMN config_json TEXT")
                 _conn.commit()
+            pcols = {r[1] for r in _conn.execute("PRAGMA table_info(paper)")}
+            if "bench_exit" not in pcols:   # virtual portfolio from an earlier build
+                _conn.execute("ALTER TABLE paper ADD COLUMN bench_exit REAL")
+                _conn.commit()
+            for col in ("fee_in", "fee_out", "fx_usd_entry", "fx_usd_exit"):   # fees and currency, added in the 2026-09 review
+                if col not in pcols:
+                    _conn.execute(f"ALTER TABLE paper ADD COLUMN {col} REAL")
+                    _conn.commit()
         return _conn
 
 
@@ -151,6 +183,11 @@ def get_scan(scan_id: str) -> dict | None:
     s["tickers"] = json.loads(s.pop("tickers_json"))
     s["source"] = json.loads(s.pop("source_json") or "null")
     s["sessions"] = list_sessions(scan_id=scan_id)
+    # analyses reused from earlier today belong to this scan's results too
+    extra = get_setting(f"scan_extra:{scan_id}") or []
+    if extra:
+        have = {x["id"] for x in s["sessions"]}
+        s["sessions"] += [r for r in list_sessions(500) if r["id"] in extra and r["id"] not in have]
     return s
 
 
@@ -196,7 +233,7 @@ def get_session(sid: str) -> dict | None:
 
 
 def list_sessions(limit: int = 200, scan_id: str | None = None) -> list[dict]:
-    cols = ("id,ticker,trade_date,created_at,finished_at,mode,provider,lang,status,rating,verdict_json,"
+    cols = ("id,ticker,trade_date,created_at,finished_at,mode,provider,quick_model,deep_model,lang,status,rating,verdict_json,"
             "price_at_verdict,spy_at_verdict,price_time,price_source,cost_usd,scan_id,config_json")
     if scan_id:
         rows = q(f"SELECT {cols} FROM sessions WHERE scan_id=? ORDER BY created_at", (scan_id,))

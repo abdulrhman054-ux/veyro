@@ -136,6 +136,8 @@ export function AnimatedSprite({ name, px = 5 }: { name: CharKey; px?: number })
       <SpriteSvg name={name} px={px} overlay="talk" className="fr mo" />
       <SpriteSvg name={name} px={px} overlay="happy" className="fr hp" />
       <SpriteSvg name={name} px={px} overlay="worry" className="fr wr" />
+      <SpriteSvg name={name} px={px} frame="walkA" className="fr wka" />
+      <SpriteSvg name={name} px={px} frame="walkB" className="fr wkb" />
     </>
   );
 }
