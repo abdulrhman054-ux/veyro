@@ -67,6 +67,13 @@ CREATE TABLE IF NOT EXISTS sharia_cache (      -- optional Sharia screen: raw fr
 CREATE TABLE IF NOT EXISTS valuation_cache (   -- free pre-screen "value" mode: light company facts per symbol
   symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS fundamentals_cache (   -- free screen: two to four years of annual statement lines
+  symbol TEXT PRIMARY KEY, data_json TEXT NOT NULL, fetched_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS screen_log (           -- every free-screen verdict, scored later like the team's calls
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL, verdict TEXT NOT NULL, price REAL, bench TEXT,
+  bench_price REAL, screened_on TEXT NOT NULL, created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS price_alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   symbol TEXT NOT NULL, op TEXT NOT NULL,       -- 'above' | 'below'

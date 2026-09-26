@@ -29,6 +29,7 @@ Electron (desktop/main.js) ──starts──▶ python -m veyro (backend/veyro/
 | `market.py`, `calendars.py` | Free market data (Yahoo via yfinance, cached) and trading calendars (XSAU / XNYS) |
 | `allocation.py` | Leo's plan: caps, weights, broker fees, FX |
 | `assistant.py`, `extras.py` | Track record (trust), alerts, morning report, virtual portfolio |
+| `screening.py` | The free screen without AI: Altman Z'', Piotroski F-score, trend and risk, verdict rules, and its logged track record |
 | `sharia.py`, `valuation.py`, `beginner.py`, `world.py`, `voice.py` | Optional Sharia screen, value pre-screen, beginner picks, world news (Albie), the in-character lines |
 | `execution/` | Alpaca orders (off by default; every order needs explicit confirmation) |
 | `secrets_store.py` | API keys in the OS keyring only, never in the DB, logs or responses |

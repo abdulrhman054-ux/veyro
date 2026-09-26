@@ -56,7 +56,7 @@ def replay(sid: str) -> None:
 
 
 # ---------------------------------------------------------------- economy pre-screen (free, deterministic)
-PRESCREEN_MODES = ("momentum", "steady", "value")
+PRESCREEN_MODES = ("momentum", "steady", "value", "quality")
 
 
 def prescreen(tickers: list[str], mode: str = "momentum") -> list[dict]:
@@ -95,6 +95,27 @@ def prescreen(tickers: list[str], mode: str = "momentum") -> list[dict]:
         trend = last / ma50 - 1
         score = trend * 2 + r3m - vol * 0.3
         return {"ticker": t, "score": round(score, 4), "trend": round(trend, 4), "ret_3m": round(r3m, 4), "vol": round(vol, 4), "mode": mode}
+    if mode == "quality":
+        # The free screen (screening.py): passes first, then watch, then not enough data, excluded last; within a
+        # group, higher F-score then higher Z''. Not logged to the screen track record (it isn't the owner's screen).
+        from . import screening
+        res = screening.screen(tickers, log_results=False)
+        order = {"pass": 0, "watch": 1, "insufficient": 2, "not_equity": 3, "exclude": 4}
+
+        def key(t):
+            r = res.get(t) or {}
+            return (order.get(r.get("verdict"), 3), -((r.get("quality") or {}).get("score") or 0), -((r.get("health") or {}).get("z") or 0))
+        rows = []
+        for t in sorted(tickers, key=key):
+            r = res.get(t) or {}
+            rows.append({"ticker": t, "mode": mode, "verdict": r.get("verdict"), "reasons": r.get("reasons") or [],
+                         "f_score": (r.get("quality") or {}).get("score"), "f_known": (r.get("quality") or {}).get("known"),
+                         "z": (r.get("health") or {}).get("z"), "health": (r.get("health") or {}).get("status"),
+                         "trend": (r.get("trend") or {}).get("status"),
+                         # excluded stocks get no score, so economy mode never pays to analyse them
+                         "score": None if r.get("verdict") in (None, "insufficient", "not_equity", "exclude") else -order.get(r.get("verdict"), 3),
+                         **({"note": "no_data"} if r.get("verdict") in (None, "insufficient") else {"note": "excluded"} if r.get("verdict") == "exclude" else {})})
+        return rows
     if mode == "value":
         from . import valuation
 

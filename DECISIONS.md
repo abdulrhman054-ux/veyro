@@ -224,3 +224,30 @@ Full findings: `docs/REVIEW.md`.
 131. **A run stays locked while it winds down.** A stopped run is "stopping" until its worker has returned and any framework step it left running has closed the checkpoint. A finished run cleared its checkpoint already, so it never blocks.
 132. **Resume reuses what was said.** Replaying a resumed run's finished steps uses the stopped run's own lines when the source text is the same, so no model calls are needed. Otherwise it voices them as before.
 133. **A closed position keeps the exchange rate of its sale day** in the combined US-dollar total.
+
+## Free screen without AI (owner: «نفذ التحليل بدون ذكاء اصطناعي كأداة فرز… كمحلل مالي واقتصادي محترف», 2026-09-26)
+134. **A screen, not a recommendation** (`backend/veyro/screening.py`, Office → 🧮 Free screen). Four independent checks from free Yahoo data, with no model and no cost:
+    - **Financial health: Altman Z''** (1995, the version for non-manufacturers and emerging markets, so it fits Tadawul too).
+      - Zones: above 2.60 safe, 1.10–2.60 grey, below 1.10 distress.
+      - Not applicable to banks, insurers, other financials and REITs; the screen says so instead of giving a misleading number.
+      - Why Z'' and not the original Z: the original is calibrated on US manufacturers and uses market value.
+    - **Results quality: Piotroski F-score** (2000), 9 yes/no tests on the last two annual reports.
+      - A test with a missing line is "unknown". The score is shown as passes out of the tests checked, and fewer than 7 checked tests is never "good".
+      - Financials get a profitability check only (ROA positive and not falling), since margin, liquidity and leverage don't mean the same there.
+    - **Trend and risk, from prices:** the 200-day average and 50/200 cross, 12-1 momentum, volatility, maximum drawdown, and RSI(14) as a caution flag only.
+    - **Valuation, for context only:** P/E against its sector in its own market, and the dividends actually paid.
+      - It never decides the verdict, because cheap alone can be a value trap.
+    - **Verdict rules**, stated in the code and in the UI:
+      - **exclude:** distress, or F ≤ 2 with ≥ 7 tests checked, or loss-making in a downtrend;
+      - **pass:** healthy and good quality, and not in a downtrend;
+      - **not enough data:** neither health nor quality could be checked;
+      - **watch:** everything else.
+      - Every verdict lists its reasons.
+    - **Evidence, said plainly in the UI:**
+      - these measures have long-run research behind them, but their edge has weakened since publication, and there is little evidence for the Saudi market;
+      - so the screen is recorded (`screen_log`) and scored 20 and 60 trading sessions later against each market's index, in the trust dashboard.
+    - **Where it's wired:**
+      - one stock, a watchlist, or ticked scan candidates, up to 25;
+      - "Analyse only those that passed" puts the passing stocks in the watchlist for the team;
+      - economy mode's **quality** pre-screen never pays to analyse an excluded stock.
+    - **Data:** Yahoo annual statements, cached a week (a failure for an hour). Row names follow yfinance's statement index, and the real-data coverage is UNVERIFIED here (REVIEW §8).

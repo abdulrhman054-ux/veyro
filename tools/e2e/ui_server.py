@@ -15,8 +15,13 @@ P["FLKY"] = 10.0
 def last_price(t):
     if t not in P or (t == "FLKY" and os.path.exists(NOPRICE)): return None
     return {"price": P[t], "currency": "SAR" if t.endswith(".SR") or t == "USDSAR=X" else "USD", "as_of": "2026-09-25T15:00:00+00:00", "source": "stub"}
+TREND = {"1211.SR": -1, "AAPL": 1, "KO": 1, "2222.SR": 1, "1120.SR": 1}   # a year of closes drifts up (1) or down (-1)
 def history(t, period="3mo"):
     base = P.get(t, 100.0)
+    if period == "1y":   # the free screen needs a year of sessions
+        k = TREND.get(t, 0)
+        closes = [round(base * (1 + 0.25 * k * (i / 260 - 1)) * (1 + 0.01 * math.sin(i / 6)), 2) for i in range(260)]
+        return {"ticker": t, "dates": [f"2025-{(i // 22) % 12 + 1:02d}-{(i % 22) + 1:02d}" for i in range(260)], "closes": closes, "source": "stub"}
     closes = [round(base * (1 + 0.03 * math.sin(i / 6)), 2) for i in range(60)]
     return {"ticker": t, "dates": [f"2026-07-{(i % 28) + 1:02d}" for i in range(60)], "closes": closes, "source": "stub"}
 market.last_price = last_price
@@ -52,6 +57,24 @@ DIVS = {"KO": [("2026-03-01", 0.51), ("2026-06-01", 0.51)], "2222.SR": [("2026-0
         "7010.SR": [("2026-04-01", 1.0)]}
 market.dividends_or_none = lambda s: DIVS.get(s, [])
 market.dividends = lambda s: DIVS.get(s, [])
+# free screen without AI: sample annual statements (newest year first). KO/2222.SR healthy, AAPL grey zone,
+# 1120.SR a bank (Altman doesn't apply), 1211.SR in distress and loss-making, the rest unavailable.
+from veyro import screening
+def _st(sector, industry, **over):
+    lines = {"total_assets": [1000.0, 950.0, 900.0], "current_assets": [500.0, 450.0], "current_liabilities": [250.0, 250.0],
+             "total_liabilities": [400.0, 420.0], "retained_earnings": [300.0, 250.0], "equity": [600.0, 530.0],
+             "long_term_debt": [100.0, 120.0], "shares": [100.0, 100.0], "revenue": [1200.0, 1050.0], "gross_profit": [480.0, 400.0],
+             "ebit": [150.0, 120.0], "net_income": [100.0, 80.0], "cfo": [140.0, 110.0]}
+    lines.update(over)
+    return {"quote_type": "EQUITY", "sector": sector, "industry": industry, "name": None, "years": ["2025-12-31", "2024-12-31"], "lines": lines}
+STMT = {"KO": _st("Consumer Defensive", "Beverages - Non-Alcoholic"), "2222.SR": _st("Energy", "Oil & Gas Integrated"),
+        "AAPL": _st("Technology", "Consumer Electronics", current_assets=[300.0, 450.0], current_liabilities=[280.0, 250.0],
+                    retained_earnings=[50.0, 250.0], ebit=[80.0, 120.0], equity=[300.0, 530.0], total_liabilities=[700.0, 420.0]),
+        "1120.SR": _st("Financial Services", "Banks - Regional"),
+        "1211.SR": _st("Basic Materials", "Other Industrial Metals & Mining", current_assets=[200.0, 450.0], current_liabilities=[400.0, 250.0],
+                       retained_earnings=[-300.0, 250.0], ebit=[-20.0, 120.0], equity=[100.0, 530.0], total_liabilities=[900.0, 420.0],
+                       net_income=[-60.0, 80.0], cfo=[-10.0, 110.0])}
+screening.statements = lambda s: STMT.get(s) or {"error": "unavailable"}
 # Yahoo's screener (blocked here): a Saudi answer for the region "sa" query, nothing for the rest
 from veyro.lazy import yf as _yf
 def _screen(query, **kw):

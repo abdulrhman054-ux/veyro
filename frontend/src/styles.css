@@ -791,3 +791,16 @@ main, .card, .report > .right, .report > .left { min-width: 0; }
 /* At the boardroom table the space above Bruno holds Benny's name: his line goes to his side instead. */
 .room.scene-decision .agent.c-Bruno .quip { top: 6px; left: 136px; transform: none; white-space: normal; width: 150px; text-align: center; animation: none; }
 .room.scene-decision .agent.c-Bruno .quip::after { bottom: auto; top: 22px; left: -9px; margin: 0; border: 6px solid transparent; border-right-color: #D9573F; border-left: 0; }
+
+/* ---- Free screen without AI ---- */
+.table-scroll { overflow-x: auto; max-width: 100%; }
+.free-screen { max-height: 88vh; overflow-y: auto; }
+.free-screen-tbl td, .free-screen-tbl th { vertical-align: top; font-size: 14px; }
+.ltr-num { direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+:root[dir="rtl"] .ltr-num, [dir="rtl"] .ltr-num { text-align: right; }
+.fs-why td { background: var(--cream); font-size: 13px; }
+.fs-tests { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.fs-test { border-radius: 10px; padding: 2px 8px; font-size: 12px; font-weight: 700; background: #F3EEE2; }
+.fs-test.ok { background: #DDF3E6; color: #1F6B43; } .fs-test.no { background: #FBE3DD; color: #9E2F1C; } .fs-test.na { color: var(--muted); }
+@media (max-width: 700px) { .free-screen-tbl td, .free-screen-tbl th { font-size: 12px; } .ltr-num { white-space: normal; } }
+bdi.num { unicode-bidi: isolate; white-space: nowrap; }

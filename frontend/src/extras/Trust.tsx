@@ -3,6 +3,7 @@ import { api } from "../api";
 import { SpriteSvg } from "../art/Sprite";
 import { RATING, fmtNum } from "../i18n";
 import { usePrefs } from "../prefs";
+import { FreeScreenTrack } from "./FreeScreen";
 
 type Agg = { n: number; hits: number; hit_rate: number | null; avg_edge: number | null; sessions?: number;
   ci_low?: number | null; ci_high?: number | null; enough?: boolean; waiting?: number };
@@ -90,6 +91,7 @@ export function TrustDashboard({ active = true }: { active?: boolean }) {
                 <td className="ltr">{pct(m.hit_rate)}</td><td className="ltr">{m.avg_cost != null ? `$${fmtNum(m.avg_cost, "en", { maximumFractionDigits: 2 })}` : "—"}</td></tr>))}</tbody></table></div>
         </div>
       </div>
+      <FreeScreenTrack active={active} />
       <p className="muted" style={{ margin: 0, fontSize: 12 }}>{ar
         ? "أرقام محسوبة مباشرة من الأسعار بدون ذكاء اصطناعي. الأداء السابق ما يضمن المستقبل، وليست نصيحة مالية."
         : "Computed straight from prices, no AI involved. Past results don't guarantee the future; not financial advice."}</p>

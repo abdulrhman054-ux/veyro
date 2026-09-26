@@ -12,6 +12,7 @@ import { BeginnerGuide } from "./BeginnerGuide";
 import { AddToPaper } from "../extras/Paper";
 import { RoomScene, Stage } from "./Room";
 import { isWarning } from "./fun";
+import { FreeScreenModal, reasonText, verdictText } from "../extras/FreeScreen";
 import { useSession, type Line } from "./useSession";
 import { useLineText } from "./lineText";
 import { AskTeam, FavoritesStrip, StarButton, useAssistant } from "../assistant/Assistant";
@@ -30,7 +31,8 @@ type ScanView = { id: string; tickers: string[]; source: Candidate[] | null; ses
   budget?: Budget | null; beginner?: boolean; prescreen?: Prescreen[] | null; reused?: Record<number, boolean>; capped?: boolean };
 type Prescreen = { ticker: string; score: number | null; trend?: number; ret_3m?: number; vol?: number; mode?: string; ret_12_1?: number; max_drop?: number;
   pe?: number | null; peer_pe?: number | null; pe_vs?: "sector" | "market" | null; peers?: number | null; sector?: string | null;
-  div_yield?: number | null; yield_unusual?: boolean; value_note?: string | null };
+  div_yield?: number | null; yield_unusual?: boolean; value_note?: string | null;
+  verdict?: string | null; reasons?: { code: string; value?: number | string | null; known?: number | null }[]; f_score?: number | null; f_known?: number | null; z?: number | null };
 
 /** One line for the "value" pre-screen: P/E against its peers and the dividends actually paid, or why it isn't scored. */
 function valueLine(p: Prescreen, lang: string) {
@@ -74,7 +76,8 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
   // Economy: a free price pre-screen, then the full (paid) team only on the best few.
   const [economy, setEconomy] = useState(false);
   const [econTop, setEconTop] = useState(3);
-  const [econMode, setEconMode] = useState<"momentum" | "steady" | "value">("momentum");
+  const [econMode, setEconMode] = useState<"momentum" | "steady" | "value" | "quality">("momentum");
+  const [freeScreen, setFreeScreen] = useState<string[] | null>(null);   // symbols in the free-screen window
   // Reuse: this stock was already analysed today with the same models.
   const [reuseOffer, setReuseOffer] = useState<{ id: string; ticker: string; rating: string | null; at: string } | null>(null);
   useEffect(() => {
@@ -402,6 +405,8 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
 
   return (
     <>
+      {freeScreen && <FreeScreenModal symbols={freeScreen} onClose={() => setFreeScreen(null)}
+        onAnalyse={(syms) => { setMode("watchlist"); setPicked(syms); setFreeScreen(null); click(); }} />}
       <div className="startbar" role="group" aria-label={t.start}>
         <div className="seg" role="group">
           {(["beginner", "single", "watchlist", "scan"] as Mode[]).map((m) => (
@@ -491,11 +496,12 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
             <select className="field" style={{ height: 32, padding: "0 6px", marginInlineStart: 6 }} value={econTop} disabled={running || !economy}
               onChange={(e) => setEconTop(Number(e.target.value))}>{[1, 2, 3, 5, 8, 10].map((k) => <option key={k} value={k}>{k}</option>)}</select>
             <select className="field" style={{ height: 32, padding: "0 6px", marginInlineStart: 6 }} value={econMode} disabled={running || !economy}
-              aria-label={lang === "ar" ? "طريقة الفحص المجاني" : "Pre-screen method"} onChange={(e) => setEconMode(e.target.value as "momentum" | "steady" | "value")}
-              title={lang === "ar" ? "زخم: اللي صعد مؤخراً. ثابت: قوة على سنة بدون آخر شهر، مع عقوبة للتذبذب والهبوط الكبير. قيمة: مكرر الربحية مقارنة بقطاعه في نفس السوق، وعائد التوزيعات الفعلي لآخر 12 شهر." : "Momentum: what rose lately. Steady: 12-month strength skipping the last month, penalising swings and big drops. Value: P/E against its own sector in the same market, plus the dividends actually paid in the last 12 months."}>
+              aria-label={lang === "ar" ? "طريقة الفحص المجاني" : "Pre-screen method"} onChange={(e) => setEconMode(e.target.value as "momentum" | "steady" | "value" | "quality")}
+              title={lang === "ar" ? "زخم: اللي صعد مؤخراً. ثابت: قوة على سنة بدون آخر شهر، مع عقوبة للتذبذب والهبوط الكبير. قيمة: مكرر الربحية مقارنة بقطاعه في نفس السوق، وعائد التوزيعات الفعلي لآخر 12 شهر. جودة: الفرز المجاني (السلامة المالية وجودة النتائج والاتجاه)، والمستبعد ما يتحلل أبداً." : "Momentum: what rose lately. Steady: 12-month strength skipping the last month, penalising swings and big drops. Value: P/E against its own sector in the same market, plus the dividends actually paid in the last 12 months. Quality: the free screen (financial health, results quality, trend); excluded stocks are never analysed."}>
               <option value="momentum">{lang === "ar" ? "زخم" : "momentum"}</option>
               <option value="steady">{lang === "ar" ? "ثابت" : "steady"}</option>
               <option value="value">{lang === "ar" ? "قيمة" : "value"}</option>
+              <option value="quality">{lang === "ar" ? "جودة (الفرز المجاني)" : "quality (free screen)"}</option>
             </select>
           </label>
         )}
@@ -504,6 +510,16 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
         {prefs.showCost && settings?.spend?.cap && !demo && <span className={`chip mkt${settings.spend.spent >= settings.spend.cap ? " closed" : ""}`} title={lang === "ar" ? "صرف هذا الشهر من سقف الميزانية" : "This month's spend against your cap"}>
           <i />{lang === "ar" ? "الشهر" : "Month"} <span className="ltr">${settings.spend.spent.toFixed(2)} / ${settings.spend.cap}</span></span>}
         <span style={{ flex: 1 }} />
+        {!running && mode !== "beginner" && (() => {
+          const syms = mode === "single" ? (TICKER.test(ticker.trim().toUpperCase()) ? [ticker.trim().toUpperCase()] : [])
+            : mode === "watchlist" ? picked : (preview ?? []).map((c) => c.symbol).filter((x) => chosen.has(x) && !shHidden(x));
+          return (
+            <button className="ghost btn" data-free-screen disabled={!syms.length} onClick={() => { click(); setFreeScreen(syms.slice(0, 25)); }}
+              title={!syms.length ? (mode === "scan" ? (lang === "ar" ? "اعرض المرشحين أول" : "Show the candidates first") : (lang === "ar" ? "اختر سهم أول" : "Pick a stock first"))
+                : (lang === "ar" ? "السلامة المالية وجودة النتائج والاتجاه والتقييم، من بيانات مجانية وبدون ذكاء اصطناعي" : "Financial health, results quality, trend and valuation, from free data, no AI")}>
+              {lang === "ar" ? `🧮 فرز مجاني${syms.length > 1 ? ` (${Math.min(25, syms.length)})` : ""}` : `🧮 Free screen${syms.length > 1 ? ` (${Math.min(25, syms.length)})` : ""}`}</button>
+          );
+        })()}
         {running
           ? <button className="ghost btn" onClick={stop} disabled={stopReq} aria-busy={stopReq}>{stopReq ? (lang === "ar" ? "نوقف…" : "Stopping…") : t.stop}</button>
           : <button className="primary btn" onClick={() => void start()} disabled={(mode === "watchlist" && picked.length === 0) || (mode === "beginner" && !!bPicks && bChosen.size === 0)}>
@@ -675,7 +691,9 @@ export function Office({ settings, onOpenReport, onBusy, marketOpen: usOpen, mar
                   <li key={p.ticker} style={{ opacity: scan.tickers.includes(p.ticker) ? 1 : 0.5 }}>
                     <b className="pixel ltr" style={{ minWidth: 60 }}>{p.ticker}</b>
                     <ShariaBadge symbol={p.ticker} />
-                    <span className="ltr muted" style={{ fontSize: 12 }}>{p.mode === "value" ? valueLine(p, lang)
+                    <span className="ltr muted" style={{ fontSize: 12 }}>{p.mode === "quality"
+                      ? `${verdictText(p.verdict, lang)}${p.reasons?.[0] ? ` · ${reasonText(p.reasons[0], lang)}` : ""}`
+                      : p.mode === "value" ? valueLine(p, lang)
                       : p.score == null ? (lang === "ar" ? "بيانات غير كافية" : "not enough data")
                       : p.mode === "steady"
                         ? `${lang === "ar" ? "سنة بدون آخر شهر" : "12-1m"} ${fmtPct(p.ret_12_1 ?? 0, lang)} · ${lang === "ar" ? "أكبر هبوط" : "max drop"} ${fmtPct(-(p.max_drop ?? 0), lang)}`

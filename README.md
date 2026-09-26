@@ -70,6 +70,15 @@
 - مدير المحفظة في الإطار (ليو) يعرف المبلغ المتاح وقت القرار.
 - بعد التحليل تطلع **خطة ليو للمبلغ**: كم سهم من كل شركة قرارها «شراء» أو «زيادة»، وكم يبقى نقد. مثال للتفكير وليس نصيحة مالية.
 
+### 🧮 فرز مجاني بدون ذكاء اصطناعي
+زر **«فرز مجاني»** جنب «ابدأ» (لسهم واحد أو قائمة أسهم أو مرشحي المسح). يفحص كل سهم من بيانات مجانية وبدون أي تكلفة:
+- **السلامة المالية:** مؤشر ألتمان Z'' (خطر التعثّر).
+- **جودة النتائج:** مؤشر بيوتروسكي F، وهو 9 بنود من آخر سنتين.
+- **الاتجاه والمخاطرة:** من السعر.
+- **التقييم مقابل القطاع:** يُعرض للسياق فقط.
+
+النتيجة **فرز مو توصية**: «يجتاز الفرز» أو «مراقبة» أو «استبعاد» أو «بيانات ناقصة»، مع السبب. تقدر تضغط «حلّل المجتازين فقط» علشان الفريق يحلل الأسهم اللي اجتازت. وكل نتيجة تنقاس لاحقاً في لوحة الثقة.
+
 ### زر الإيقاف
 يوقف الجلسة فوراً حتى لو كان أحد الوكلاء في منتصف تفكيره، والجلسة الحقيقية تقدر تكملها لاحقاً من «السجل».
 
@@ -135,6 +144,7 @@
 2. Try **Demo mode**, or add your API key in **Settings** (stored in Windows Credential Manager).
 3. Type a ticker **or a company name** (Arabic or English) and press **Start session**. Other modes: **🌱 I'm new** (enter your amount, e.g. 1000 SAR: the team picks affordable well-known companies, analyses them and Leo splits the amount into whole shares, with a tip from every character), a **Watchlist** (pick up to 50 stocks), or a **Market scan** (up to 25 real candidates, tick the ones to analyse).
    - Optional **budget**: the Portfolio Manager knows your free cash, scans only suggest affordable stocks, and Leo lists exactly which stocks to buy, how many shares and why.
+   - **🧮 Free screen** (no AI, no cost): Altman Z'' financial health, Piotroski F-score quality, price trend and risk, and valuation against the sector, giving a screening verdict with reasons (pass / watch / exclude / not enough data). A filter, not a recommendation. "Analyse only those that passed" hands them to the team.
    - **Stop** ends a session immediately; a real session can be resumed from History.
    - The office plays like a short film: every step has its own set (chart room, news studio, debate arena, Leo's office, risk room, newsroom, boardroom).
    - Settings: any Claude model (or any provider the framework supports) with a recommended pair and a live list from your account; text size, high contrast and read-aloud.

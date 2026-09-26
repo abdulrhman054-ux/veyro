@@ -7,7 +7,7 @@ cd "$(dirname "$0")/../.."
 mkdir -p verification/e2e
 PY=.venv/bin/python; [ -x "$PY" ] || PY=".venv/Scripts/python.exe"
 failed=""
-for t in ${SUITES:-ui_test new_feats round3 review_fixes round4 persist stop fun round5}; do
+for t in ${SUITES:-ui_test new_feats round3 review_fixes round4 persist stop fun round5 screen}; do
   R=Buy; [ "$t" = fun ] && R=Sell   # the easter-egg suite needs a sell call
   pkill -f "[u]i_serve[r]\.py" 2>/dev/null; sleep 1
   (cd backend && FAKE_RATING=$R FAKE_DELAY=0.1 nohup "../$PY" ../tools/e2e/ui_server.py > ../verification/e2e/server_$t.log 2>&1 &)

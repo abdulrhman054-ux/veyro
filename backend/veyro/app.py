@@ -558,7 +558,7 @@ class ScanIn(BaseModel):
     tickers: list[str] = []
     reuse: bool = True              # reopen today's finished analysis of a stock instead of paying again
     economy_top: int | None = None  # economy mode: free price pre-screen, full analysis only on the best N
-    prescreen_mode: str = "momentum"  # 'momentum' | 'steady' 
+    prescreen_mode: str = "momentum"  # 'momentum' | 'steady' | 'value' | 'quality' 
     screener: str | None = None
     count: int = 3
     lang: str = "ar"
@@ -1265,6 +1265,29 @@ def sharia_screen(b: ShariaIn):
     syms = [t for t in (x.strip().upper() for x in b.symbols) if TICKER_RE.match(t)]
     return {"results": sharia.screen(syms, b.method), "method": b.method or sharia.settings()["method"],
             "disclaimer": {lg: sharia.disclaimer(lg) for lg in ("ar", "en")}}
+
+
+# ---------------------------------------------------------------- free screen without AI (a filter, not advice)
+class FreeScreenIn(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=25)
+
+
+@app.post("/api/screen/free")
+def free_screen(b: FreeScreenIn):
+    """Financial health (Altman Z''), quality (Piotroski F-score), trend and valuation from free data, then a
+    screening verdict with its reasons. No model call, no cost. Each verdict is logged to be scored later."""
+    from . import screening
+    syms = [t for t in dict.fromkeys(x.strip().upper() for x in b.symbols) if TICKER_RE.match(t)]
+    if not syms:
+        raise HTTPException(400, "invalid_ticker")
+    return {"results": screening.screen(syms), "source": market.SOURCE}
+
+
+@app.get("/api/screen/free/track")
+def free_screen_track():
+    """How stocks that passed, were watched or were excluded did against their index 20 and 60 sessions later."""
+    from . import screening
+    return screening.track()
 
 
 # ---------------------------------------------------------------- beginner mode
