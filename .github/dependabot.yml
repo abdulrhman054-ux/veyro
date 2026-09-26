@@ -1,13 +1,33 @@
+# Only minor and patch updates are proposed automatically: a major version (TypeScript 7, Vite 8, a new
+# actions/* major, ...) can break the build or the committed frontend/dist and needs a deliberate PR by a maintainer.
+# Updates are grouped per ecosystem so there is one PR a month to review, not one per package.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      actions: { patterns: ["*"] }
   - package-ecosystem: npm
     directory: /frontend
     schedule: { interval: monthly }
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      frontend: { patterns: ["*"] }
   - package-ecosystem: pip
     directory: /backend
     schedule: { interval: monthly }
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # TradingAgents is pinned on purpose (DECISIONS: used unmodified at a known version)
+      - dependency-name: "tradingagents"
+    groups:
+      backend: { patterns: ["*"] }
