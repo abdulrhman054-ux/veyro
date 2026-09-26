@@ -15,6 +15,20 @@
 - كيف يشتغل التطبيق من الداخل / Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - الترخيص / License: [Apache-2.0](LICENSE)
 
+## 📸 جولة بالصور · Screenshots
+
+> اللقطات من **الوضع التجريبي** وببيانات عيّنة من بيئة الاختبار، فالأسعار والكلام فيها مو تحليل حقيقي. في الجلسة الحقيقية يتكلم الفريق من تحليل فعلي لبيانات السوق.
+> Taken in **demo mode** with sample data from the test environment: the prices and lines are not real analysis. In a real session the team speaks from an actual analysis of market data.
+
+| | |
+|---|---|
+| ![المكتب](docs/screenshots/01_office_ar.png) **المكتب:** الفريق على مكاتبه. تختار سهم أمريكي أو سعودي وتبدأ.<br>*The office: pick a US or Saudi stock and start.* | ![المناظرة](docs/screenshots/02_debate_ar.png) **المناظرة:** بولت (الصاعد) ضد برونو (الهابط)، وليو يدير النقاش.<br>*The bull-vs-bear debate, moderated by Leo.* |
+| ![غرفة المخاطر](docs/screenshots/03_risk_ar.png) **غرفة المخاطر:** تانك يراجع المخاطرة، وبرونو يحذّر «ورع، لا تشتري هذا!».<br>*The risk room: Tank reviews the risk.* | ![القرار](docs/screenshots/04_decision_ar.png) **قاعة القرار:** ليو يعلن القرار مع السبب والسعر وقت القرار.<br>*The boardroom: Leo's call, reason and price.* |
+| ![التقرير](docs/screenshots/05_report_ar.png) **التقرير:** كل مرحلة بالترتيب، مع الأرقام والمصادر.<br>*The report: every step in order, with figures and sources.* | ![المبتدئ](docs/screenshots/06_beginner_ar.png) **وضع المبتدئ:** اكتب مبلغك (مثلاً 5000 ريال)، واحصل على شركات تناسبه وخيار صندوق مؤشرات.<br>*Beginner mode: suggestions that fit your amount, plus an index-fund option.* |
+| ![الفرز المجاني](docs/screenshots/07_free_screen_ar.png) **الفرز المجاني بدون ذكاء اصطناعي:** السلامة المالية وجودة النتائج والاتجاه لأسهم أمريكية وسعودية معاً.<br>*Free screen without AI, US and Saudi stocks together.* | ![السوق السعودي مباشر](docs/screenshots/08_live_ar.png) **الأسعار مباشرة: السوق السعودي** (تاسي والأسهم).<br>*Live prices: Saudi market (TASI and stocks).* |
+| ![السوق الأمريكي مباشر](docs/screenshots/08b_live_us_ar.png) **الأسعار مباشرة: السوق الأمريكي** (S&P 500 وناسداك وداو جونز).<br>*Live prices: US market.* | ![English](docs/screenshots/09_charts_en.png) **بالإنجليزي:** أولي يشرح الشارت لسهم Apple.<br>*In English: Ollie reads Apple's chart.* |
+| ![الجوال](docs/screenshots/10_phone_ar.png) **على الجوال:** الكلام يظهر تحت المسرح بخط واضح.<br>*On a phone: the dialogue shows under the stage.* | |
+
 ---
 
 ## الطريقة الأسهل: التطبيق
