@@ -1,17 +1,33 @@
-# فيرو · Veyro: واجهة عربية/إنجليزية لـ TradingAgents
+# فيرو · Veyro: تحليل الأسهم الأمريكية والسعودية بـ TradingAgents
 
-**Veyro is a bilingual (Arabic / English) desktop app for [TradingAgents](https://github.com/TauricResearch/TradingAgents)**, the open-source multi-agent LLM trading framework by Tauric Research. It turns a TradingAgents run (analysts, a bull-vs-bear debate, a trader, a risk team and a portfolio manager) into a pixel-art office of 8 animal characters you can watch, for **US stocks and the Saudi market (Tadawul)**.
+**US and Saudi (Tadawul) stock analysis, in Arabic and English, built on TradingAgents**
+
+**Veyro is a bilingual (Arabic / English) desktop app for [TradingAgents](https://github.com/TauricResearch/TradingAgents)**, the open-source multi-agent LLM trading framework by Tauric Research. It turns a TradingAgents run (analysts, a bull-vs-bear debate, a trader, a risk team and a portfolio manager) into a pixel-art office of 8 animal characters you can watch, for **both US stocks (NYSE / NASDAQ) and Saudi stocks (Tadawul)**.
 
 مكتب بكسلي فيه ٨ شخصيات حيوانات تتناقش حول سهم أمريكي أو سعودي قدامك، وبعدين ليو (الأسد) يعلن القرار. التطبيق **مبني على [TradingAgents](https://github.com/TauricResearch/TradingAgents)** من Tauric Research (Apache-2.0)، ويستخدمه كما هو بدون تعديل (نسخة v0.5.1)، ويضيف فوقه الواجهة والمنطق المالي وسقف الصرف والفحص الشرعي الاختياري.
 
 > تحليل للمساعدة على التفكير، **وليس نصيحة مالية**. Analysis to help you think, **not financial advice**.
 > Veyro is an independent project, not affiliated with or endorsed by Tauric Research.
 
-**Keywords:** TradingAgents GUI, TradingAgents desktop app, TradingAgents Arabic, multi-agent LLM trading, Tadawul, Saudi stocks, تداول، الأسهم السعودية، ذكاء اصطناعي للأسهم.
+**Keywords:** TradingAgents GUI, US stocks, Saudi stocks, TradingAgents desktop app, TradingAgents Arabic, multi-agent LLM trading, Tadawul, Saudi stocks, تداول، الأسهم السعودية، ذكاء اصطناعي للأسهم.
 
 - المساهمة / Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - كيف يشتغل التطبيق من الداخل / Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - الترخيص / License: [Apache-2.0](LICENSE)
+
+## 📸 جولة بالصور · Screenshots
+
+> اللقطات من **الوضع التجريبي** وببيانات عيّنة من بيئة الاختبار، فالأسعار والكلام فيها مو تحليل حقيقي. في الجلسة الحقيقية يتكلم الفريق من تحليل فعلي لبيانات السوق.
+> Taken in **demo mode** with sample data from the test environment: the prices and lines are not real analysis. In a real session the team speaks from an actual analysis of market data.
+
+| | |
+|---|---|
+| ![المكتب](docs/screenshots/01_office_ar.png) **المكتب:** الفريق على مكاتبه. تختار سهم أمريكي أو سعودي وتبدأ.<br>*The office: pick a US or Saudi stock and start.* | ![المناظرة](docs/screenshots/02_debate_ar.png) **المناظرة:** بولت (الصاعد) ضد برونو (الهابط)، وليو يدير النقاش.<br>*The bull-vs-bear debate, moderated by Leo.* |
+| ![غرفة المخاطر](docs/screenshots/03_risk_ar.png) **غرفة المخاطر:** تانك يراجع المخاطرة، وبرونو يحذّر «ورع، لا تشتري هذا!».<br>*The risk room: Tank reviews the risk.* | ![القرار](docs/screenshots/04_decision_ar.png) **قاعة القرار:** ليو يعلن القرار مع السبب والسعر وقت القرار.<br>*The boardroom: Leo's call, reason and price.* |
+| ![التقرير](docs/screenshots/05_report_ar.png) **التقرير:** كل مرحلة بالترتيب، مع الأرقام والمصادر.<br>*The report: every step in order, with figures and sources.* | ![المبتدئ](docs/screenshots/06_beginner_ar.png) **وضع المبتدئ:** اكتب مبلغك (مثلاً 5000 ريال)، واحصل على شركات تناسبه وخيار صندوق مؤشرات.<br>*Beginner mode: suggestions that fit your amount, plus an index-fund option.* |
+| ![الفرز المجاني](docs/screenshots/07_free_screen_ar.png) **الفرز المجاني بدون ذكاء اصطناعي:** السلامة المالية وجودة النتائج والاتجاه لأسهم أمريكية وسعودية معاً.<br>*Free screen without AI, US and Saudi stocks together.* | ![السوق السعودي مباشر](docs/screenshots/08_live_ar.png) **الأسعار مباشرة: السوق السعودي** (تاسي والأسهم).<br>*Live prices: Saudi market (TASI and stocks).* |
+| ![السوق الأمريكي مباشر](docs/screenshots/08b_live_us_ar.png) **الأسعار مباشرة: السوق الأمريكي** (S&P 500 وناسداك وداو جونز).<br>*Live prices: US market.* | ![English](docs/screenshots/09_charts_en.png) **بالإنجليزي:** أولي يشرح الشارت لسهم Apple.<br>*In English: Ollie reads Apple's chart.* |
+| ![الجوال](docs/screenshots/10_phone_ar.png) **على الجوال:** الكلام يظهر تحت المسرح بخط واضح.<br>*On a phone: the dialogue shows under the stage.* | |
 
 ---
 
