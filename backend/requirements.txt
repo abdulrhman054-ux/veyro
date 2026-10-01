@@ -1,7 +1,7 @@
 # Veyro backend. TradingAgents is used as a pinned, unmodified dependency (Apache-2.0).
 tradingagents @ git+https://github.com/TauricResearch/TradingAgents@v0.5.1
 fastapi==0.141.1
-uvicorn[standard]==0.53.0
+uvicorn[standard]==0.54.0
 keyring==25.7.0
 python-dotenv==1.2.3
 yfinance==1.7.0
